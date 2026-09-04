@@ -1,7 +1,7 @@
 import { RepositoryError } from "./repository.js";
 
 export type PresentationMode = "auto" | "always" | "never";
-export type SuccessCommand = "init" | "commit";
+export type SuccessCommand = "init" | "commit" | "revert";
 
 const ESC = "\u001b[";
 
@@ -38,7 +38,8 @@ export function renderSuccess(
 ): string {
   const enabled = useTerminalPresentation(isTty);
   if (!enabled) return `${version}\n`;
-  const label = command === "init" ? "Initialized repository" : "Committed";
+  const label =
+    command === "init" ? "Initialized repository" : command === "commit" ? "Committed" : "Reverted";
   return `${style(32, "✓")} ${style(1, label)} ${style(36, version)}\n`;
 }
 

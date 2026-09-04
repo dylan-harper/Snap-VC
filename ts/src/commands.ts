@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { resolveContributorId } from "./config.js";
 import { canonicalTextDiff, classifyFile, renderFileDiff } from "./text_diff.js";
 import {
@@ -296,6 +296,64 @@ async function writeRepository(root: string, model: RepositoryModel): Promise<vo
   }
 }
 
+async function removeWorkingTree(root: string): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    throw new CommandError("cannot read working tree");
+  }
+  for (const entry of entries) {
+    if (entry.name === ".snap") continue;
+    const path = `${root}/${entry.name}`;
+    let stats;
+    try {
+      stats = await lstat(path);
+    } catch {
+      throw new CommandError(`cannot inspect working tree entry: ${entry.name}`);
+    }
+    if (stats.isSymbolicLink() || (!stats.isDirectory() && !stats.isFile())) {
+      throw new CommandError(`unsupported working tree entry: ${entry.name}`);
+    }
+    if (stats.isDirectory()) {
+      await removeWorkingTree(path);
+      await rmdir(path);
+    } else {
+      await unlink(path);
+    }
+  }
+}
+
+async function installTree(root: string, tree: Tree): Promise<void> {
+  await removeWorkingTree(root);
+  const paths = [...tree.keys()].sort((left, right) =>
+    Buffer.from(left).compare(Buffer.from(right)),
+  );
+  for (const path of paths) {
+    const parts = path.split("/");
+    let current = root;
+    for (const part of parts.slice(0, -1)) {
+      current = `${current}/${part}`;
+      try {
+        const stats = await lstat(current);
+        if (stats.isSymbolicLink() || stats.isFile()) {
+          await unlink(current);
+          await mkdir(current);
+        } else if (!stats.isDirectory()) {
+          throw new CommandError(`unsupported working tree entry: ${path}`);
+        }
+      } catch (error) {
+        if (error instanceof CommandError) throw error;
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+          await mkdir(current);
+        } else throw error;
+      }
+    }
+    const filePath = `${root}/${path}`;
+    await writeFile(filePath, tree.get(path) as Uint8Array, { flag: "w" });
+  }
+}
+
 export async function commit(
   root: string,
   message: string,
@@ -318,4 +376,55 @@ export async function commit(
   parseRepository(repositoryJson(next));
   await writeRepository(root, next);
   return formatVersion(frontier);
+}
+
+export async function revert(
+  root: string,
+  targetText: string,
+  home = process.env.HOME,
+): Promise<string> {
+  let target: Version;
+  try {
+    target = parseVersion(targetText);
+  } catch {
+    throw new CommandError(`invalid version: ${targetText}`);
+  }
+  const { model, tree } = await loadRepository(root);
+  const actual = await scanWorkingTree(root);
+  if (!treesEqual(tree, actual)) throw new CommandError("working tree is dirty");
+  let targetTree: Tree;
+  try {
+    targetTree = materializeVersion(model, target);
+  } catch {
+    throw new CommandError(`unknown version: ${targetText}`);
+  }
+  if (treesEqual(tree, targetTree)) throw new CommandError("target tree is already current");
+  const author = await resolveContributorId(root, home);
+  if (author === undefined) {
+    throw new CommandError("contributor.id is required; configure it locally or globally");
+  }
+  const revision = (model.frontier.get(author) ?? 0) + 1;
+  const patch: Patch = {
+    author,
+    revision,
+    base: model.frontier,
+    message: `revert to ${formatVersion(target)}`,
+    changes: changesForCommit(tree, targetTree),
+  };
+  const frontier = new Map(model.frontier);
+  frontier.set(author, revision);
+  const next: RepositoryModel = { format: 1, frontier, patches: [...model.patches, patch] };
+  parseRepository(repositoryJson(next));
+  await installTree(root, targetTree);
+  await writeRepository(root, next);
+  return formatVersion(frontier);
+}
+
+function treesEqual(left: Tree, right: Tree): boolean {
+  if (left.size !== right.size) return false;
+  for (const [path, bytes] of left) {
+    const other = right.get(path);
+    if (other === undefined || !equalBytes(bytes, other)) return false;
+  }
+  return true;
 }

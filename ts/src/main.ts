@@ -1,4 +1,4 @@
-import { commit, CommandError, diff, log, status } from "./commands.js";
+import { commit, CommandError, diff, log, revert, status } from "./commands.js";
 import { resolve } from "node:path";
 import { ConfigError, writeGlobalConfig, writeLocalConfig } from "./config.js";
 import { JsonError } from "./json.js";
@@ -70,6 +70,14 @@ async function main(): Promise<void> {
     if (root === undefined) throw new RepositoryError("not a Snap repository");
     process.stdout.write(
       renderSuccess("commit", await commit(root, arguments_[0]), process.stdout.isTTY),
+    );
+    return;
+  }
+  if (command === "revert" && arguments_.length === 1 && arguments_[0] !== undefined) {
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    process.stdout.write(
+      renderSuccess("revert", await revert(root, arguments_[0]), process.stdout.isTTY),
     );
     return;
   }

@@ -1,5 +1,5 @@
 import { parseJsonUnique } from "./json.js";
-import { validatePrefixFree, validateTrackedPath } from "./working_tree.js";
+import { isPathPrefix, validatePrefixFree, validateTrackedPath } from "./working_tree.js";
 import {
   formatVersion,
   snapCompare,
@@ -202,13 +202,16 @@ function parsePatch(value: unknown): Patch {
       fail("changes are not in canonical path order");
     }
   }
-  try {
-    validatePrefixFree(changes.map((change) => change.path));
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("conflicting tracked paths:")) {
-      fail(`tree paths conflict: ${error.message}`);
+  for (let leftIndex = 0; leftIndex < changes.length; leftIndex += 1) {
+    const left = changes[leftIndex];
+    if (left === undefined) continue;
+    for (let rightIndex = leftIndex + 1; rightIndex < changes.length; rightIndex += 1) {
+      const right = changes[rightIndex];
+      if (right === undefined) continue;
+      if (!isPathPrefix(left.path, right.path)) continue;
+      const isTransition = left.type === "delete" || right.type === "delete";
+      if (!isTransition) fail(`tree paths conflict: ${left.path} and ${right.path}`);
     }
-    throw error;
   }
   return { author, revision, base, message, changes };
 }
