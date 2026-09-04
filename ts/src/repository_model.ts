@@ -1,8 +1,7 @@
 import { parseJsonUnique } from "./json.js";
-import { isPathPrefix, validatePrefixFree, validateTrackedPath } from "./working_tree.js";
+import { isPathPrefix, validateTrackedPath } from "./working_tree.js";
+import { validateRepositoryHistory } from "./replay.js";
 import {
-  formatVersion,
-  snapCompare,
   validateContributorId,
   validateRevision,
   versionFromPairs,
@@ -228,79 +227,6 @@ function parsePatch(value: unknown): Patch {
   return { author, revision, base, message, changes };
 }
 
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  return Buffer.from(left).equals(Buffer.from(right));
-}
-
-function utf8Tokens(bytes: Uint8Array): string[] | undefined {
-  if (bytes.includes(0)) return undefined;
-  const text = Buffer.from(bytes).toString("utf8");
-  if (!Buffer.from(text, "utf8").equals(Buffer.from(bytes))) return undefined;
-  if (text.length === 0) return [];
-  const tokens: string[] = [];
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] === "\n") {
-      tokens.push(text.slice(start, index + 1));
-      start = index + 1;
-    }
-  }
-  if (start < text.length) tokens.push(text.slice(start));
-  return tokens;
-}
-
-function applyText(base: Uint8Array | undefined, edit: readonly EditOperation[]): Uint8Array {
-  const oldTokens = base === undefined ? [] : utf8Tokens(base);
-  if (oldTokens === undefined) fail("text change applied to binary content");
-  if (edit.length === 0) {
-    if (base !== undefined) fail("no-op change");
-    return new Uint8Array();
-  }
-  const output: string[] = [];
-  let cursor = 0;
-  for (const operation of edit) {
-    if ("retain" in operation) {
-      if (cursor + operation.retain > oldTokens.length) fail("edit does not consume old content");
-      output.push(...oldTokens.slice(cursor, cursor + operation.retain));
-      cursor += operation.retain;
-    } else if ("delete" in operation) {
-      if (cursor + operation.delete > oldTokens.length) fail("edit consumes beyond old content");
-      cursor += operation.delete;
-    } else {
-      output.push(...operation.insert);
-    }
-  }
-  if (cursor !== oldTokens.length) fail("edit does not consume old content");
-  for (let index = 0; index < output.length - 1; index += 1) {
-    if (!output[index]?.endsWith("\n")) fail("text result has a non-final unterminated token");
-  }
-  return new Uint8Array(Buffer.from(output.join(""), "utf8"));
-}
-
-function applyPatch(tree: Tree, patch: Patch): Map<string, Uint8Array> {
-  const result = new Map(tree);
-  for (const change of patch.changes) {
-    const old = result.get(change.path);
-    if (change.type === "delete") {
-      if (old === undefined) fail(`delete of absent path: ${change.path}`);
-      result.delete(change.path);
-    } else if (change.type === "put") {
-      if (old !== undefined && sameBytes(old, change.content)) fail(`no-op change: ${change.path}`);
-      result.set(change.path, change.content);
-    } else {
-      const next = applyText(old, change.edit);
-      if (old !== undefined && sameBytes(old, next)) fail(`no-op change: ${change.path}`);
-      result.set(change.path, next);
-    }
-  }
-  validatePrefixFree(result.keys());
-  return result;
-}
-
-function versionKey(version: Version): string {
-  return formatVersion(version);
-}
-
 /** Parse strict repository JSON and validate its complete causal history. */
 export function parseRepository(text: unknown): RepositoryModel {
   const value = parseJsonUnique(text);
@@ -350,9 +276,7 @@ export function parseRepository(text: unknown): RepositoryModel {
     if (patch.revision !== (patch.base.get(patch.author) ?? 0) + 1)
       fail("patch revision does not follow base");
   }
-  const built = new Map<string, Tree>();
   const pending = new Set(patches);
-  built.set("()", new Map());
   while (pending.size > 0) {
     const ready = [...pending].filter((patch) =>
       [...patch.base].every(([id, revision]) => {
@@ -364,39 +288,15 @@ export function parseRepository(text: unknown): RepositoryModel {
       }),
     );
     if (ready.length === 0) fail("cyclic or incomplete patch history");
-    ready.sort(
-      (left, right) =>
-        snapCompare(left.base, right.base) ||
-        utf8Compare(left.author, right.author) ||
-        left.revision - right.revision,
-    );
-    const patch = ready[0];
-    if (patch === undefined) fail("cyclic or incomplete patch history");
-    const baseTree = built.get(versionKey(patch.base));
-    if (baseTree === undefined) fail("patch base tree cannot be reconstructed");
-    const result = applyPatch(baseTree, patch);
-    const resultVersion = new Map(patch.base);
-    resultVersion.set(patch.author, patch.revision);
-    built.set(versionKey(resultVersion), result);
-    pending.delete(patch);
+    pending.delete(ready[0] as Patch);
   }
-  // A frontier may contain several concurrent heads.  Its tree is reconstructed
-  // by the merge algebra, after each individual patch base has been validated.
-  // A single-head frontier must still be materializable here so malformed linear
-  // histories cannot pass validation.
-  if (!built.has(versionKey(frontier))) {
-    const heads = [...frontier].filter(([id, revision]) => {
-      const patch = byDot.get(`${id}\u0000${revision}`);
-      return (
-        patch !== undefined &&
-        ![...patch.base].some(
-          ([baseId, baseRevision]) => baseId === id && baseRevision === revision,
-        )
-      );
-    });
-    if (heads.length < 2) fail("frontier tree cannot be reconstructed");
+  const model = { format: 1 as const, frontier, patches };
+  try {
+    validateRepositoryHistory(model);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "invalid repository history");
   }
-  return { format: 1, frontier, patches };
+  return model;
 }
 
 function repositoryJsonValue(model: RepositoryModel): Record<string, unknown> {

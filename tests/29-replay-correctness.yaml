@@ -1,0 +1,152 @@
+format: 1
+name: replay materializes joined and exact causal vectors
+steps:
+  - run:
+      args: [init, merged]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: merged
+      args: [config, contributor.id, seed@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: merged/base.txt, text: "base\n"}
+  - run:
+      cwd: merged
+      args: [commit, base]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(seed@x->1)\n"}
+  - copy_tree: {from: merged, to: alice}
+  - copy_tree: {from: merged, to: bob}
+  - run:
+      cwd: alice
+      args: [config, contributor.id, alice@x]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: bob
+      args: [config, contributor.id, bob@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: alice/alice.txt, text: "alice\n"}
+  - write_file: {path: bob/bob.txt, text: "bob\n"}
+  - run:
+      cwd: alice
+      args: [commit, alice-change]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(alice@x->1,seed@x->1)\n"}
+  - run:
+      cwd: bob
+      args: [commit, bob-change]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(bob@x->1,seed@x->1)\n"}
+  - run:
+      cwd: alice
+      args: [merge, ../bob]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(alice@x->1,bob@x->1,seed@x->1)\n"}
+        - {type: stderr_equals, value: ""}
+  - write_file: {path: alice/after-merge.txt, text: "after merge\n"}
+  - run:
+      cwd: alice
+      args: [commit, after-merge]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(alice@x->2,bob@x->1,seed@x->1)\n"}
+  - run:
+      cwd: alice
+      args: [revert, "(alice@x->1,seed@x->1)"]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(alice@x->3,bob@x->1,seed@x->1)\n"}
+        - {type: stderr_equals, value: ""}
+  - assert:
+      - type: path_not_exists
+        path: alice/bob.txt
+      - type: path_not_exists
+        path: alice/after-merge.txt
+      - type: file_text_equals
+        path: alice/alice.txt
+        value: "alice\n"
+
+  - run:
+      args: [init, dependent]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: dependent
+      args: [config, contributor.id, seed@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: dependent/story.txt, text: "base\n"}
+  - run:
+      cwd: dependent
+      args: [commit, base]
+      expect: [{type: exit_code, value: 0}]
+  - copy_tree: {from: dependent, to: dependent-a}
+  - copy_tree: {from: dependent, to: dependent-b}
+  - run:
+      cwd: dependent-a
+      args: [config, contributor.id, a@x]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: dependent-b
+      args: [config, contributor.id, b@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: dependent-a/story.txt, text: "base\nA1\n"}
+  - write_file: {path: dependent-b/story.txt, text: "base\nB1\n"}
+  - run:
+      cwd: dependent-a
+      args: [commit, a1]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: dependent-b
+      args: [commit, b1]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: dependent-a/story.txt, text: "base\nA1\nA2\n"}
+  - run:
+      cwd: dependent-a
+      args: [commit, a2]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(a@x->2,seed@x->1)\n"}
+  - run:
+      cwd: dependent-a
+      args: [merge, ../dependent-b]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "(a@x->2,b@x->1,seed@x->1)\n"}
+        - {type: stderr_equals, value: ""}
+  - assert:
+      - type: file_text_equals
+        path: dependent-a/story.txt
+        value: "base\nB1\nA1\nA2\n"
+
+  - run:
+      args: [init, unknown]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: unknown
+      args: [config, contributor.id, known@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: unknown/file.txt, text: "known\n"}
+  - run:
+      cwd: unknown
+      args: [commit, known]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: unknown
+      args: [diff, "(ghost@x->1,known@x->1)", "()"]
+      expect:
+        - {type: exit_code, value: 1}
+        - {type: stdout_equals, value: ""}
+        - {type: stderr_equals, value: "snap: unknown version: (ghost@x->1,known@x->1)\n"}
+  - run:
+      cwd: unknown
+      args: [revert, "(ghost@x->1,known@x->1)"]
+      expect:
+        - {type: exit_code, value: 1}
+        - {type: stdout_equals, value: ""}
+        - {type: stderr_equals, value: "snap: unknown version: (ghost@x->1,known@x->1)\n"}
+  - assert:
+      - type: file_text_equals
+        path: unknown/file.txt
+        value: "known\n"
