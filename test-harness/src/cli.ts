@@ -18,18 +18,42 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const callerCwd = process.env.SNAP_HARNESS_CALLER_CWD ?? process.cwd();
-  const result: Args = { tests: resolve(projectRoot, "tests"), verbose: false, keepFailed: false, list: false };
+  const result: Args = {
+    tests: resolve(projectRoot, "tests"),
+    verbose: false,
+    keepFailed: false,
+    list: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
-      case "--candidate": result.candidate = required(argv, ++i, "--candidate"); break;
-      case "--tests": result.tests = resolve(callerCwd, required(argv, ++i, "--tests")); break;
-      case "--filter": result.filter = required(argv, ++i, "--filter"); break;
-      case "--summary": result.summary = resolve(callerCwd, required(argv, ++i, "--summary")); break;
-      case "--verbose": case "-v": result.verbose = true; break;
-      case "--keep-failed": result.keepFailed = true; break;
-      case "--list": result.list = true; break;
-      case "--help": case "-h": usage(0); break;
-      default: throw new Error(`unknown argument: ${argv[i]}`);
+      case "--candidate":
+        result.candidate = required(argv, ++i, "--candidate");
+        break;
+      case "--tests":
+        result.tests = resolve(callerCwd, required(argv, ++i, "--tests"));
+        break;
+      case "--filter":
+        result.filter = required(argv, ++i, "--filter");
+        break;
+      case "--summary":
+        result.summary = resolve(callerCwd, required(argv, ++i, "--summary"));
+        break;
+      case "--verbose":
+      case "-v":
+        result.verbose = true;
+        break;
+      case "--keep-failed":
+        result.keepFailed = true;
+        break;
+      case "--list":
+        result.list = true;
+        break;
+      case "--help":
+      case "-h":
+        usage(0);
+        break;
+      default:
+        throw new Error(`unknown argument: ${argv[i]}`);
     }
   }
   return result;
@@ -48,8 +72,11 @@ async function main(): Promise<void> {
   const candidate = args.candidate
     ? resolve(process.env.SNAP_HARNESS_CALLER_CWD ?? process.cwd(), args.candidate)
     : resolve(projectRoot, "run");
-  try { accessSync(candidate, constants.X_OK); }
-  catch { throw new Error(`candidate is not executable: ${candidate}`); }
+  try {
+    accessSync(candidate, constants.X_OK);
+  } catch {
+    throw new Error(`candidate is not executable: ${candidate}`);
+  }
 
   process.stdout.write(`snap tests — candidate=${candidate}, ${tests.length} case(s)\n`);
   const results = [];
@@ -70,14 +97,16 @@ function required(argv: string[], index: number, flag: string): string {
 }
 
 function usage(code: number): never {
-  process.stdout.write(`Usage: verify [--candidate PATH] [options]\n\n` +
-    `  --candidate PATH   executable to test (default: bundled run launcher)\n` +
-    `  --tests PATH       alternate YAML directory\n` +
-    `  --filter TEXT      filename/name substring\n` +
-    `  --verbose, -v      print candidate output\n` +
-    `  --keep-failed      preserve failed sandboxes\n` +
-    `  --summary PATH     write plain-text summary\n` +
-    `  --list             validate and list tests\n`);
+  process.stdout.write(
+    `Usage: verify [--candidate PATH] [options]\n\n` +
+      `  --candidate PATH   executable to test (default: bundled run launcher)\n` +
+      `  --tests PATH       alternate YAML directory\n` +
+      `  --filter TEXT      filename/name substring\n` +
+      `  --verbose, -v      print candidate output\n` +
+      `  --keep-failed      preserve failed sandboxes\n` +
+      `  --summary PATH     write plain-text summary\n` +
+      `  --list             validate and list tests\n`,
+  );
   process.exit(code);
 }
 

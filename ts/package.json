@@ -5,11 +5,20 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "lint": "eslint src",
+    "format:check": "prettier --check \"src/**/*.ts\" \"../test-harness/src/**/*.ts\" \"../test-harness/test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"../test-harness/src/**/*.ts\" \"../test-harness/test/**/*.ts\"",
+    "precommit": "npm run lint && npm run format:check && npm run build"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.18.0",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.69.0"
   }
 }

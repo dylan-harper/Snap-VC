@@ -24,9 +24,7 @@ export function findRepositoryRoot(start: string): string | undefined {
     try {
       const snapStats = lstatSync(snapPath);
       if (snapStats.isSymbolicLink()) {
-        throw new RepositoryError(
-          `unsupported working tree entry: ${SNAP_DIR}`,
-        );
+        throw new RepositoryError(`unsupported working tree entry: ${SNAP_DIR}`);
       }
       if (!snapStats.isDirectory()) {
         throw new RepositoryError(`${SNAP_DIR} is not a directory`);
@@ -74,9 +72,7 @@ function rejectInvalidMetadataPath(root: string): void {
   try {
     const repositoryStats = lstatSync(repositoryFile);
     if (repositoryStats.isSymbolicLink()) {
-      throw new RepositoryError(
-        `unsupported working tree entry: ${basename(repositoryFile)}`,
-      );
+      throw new RepositoryError(`unsupported working tree entry: ${basename(repositoryFile)}`);
     }
     if (!repositoryStats.isFile()) {
       throw new RepositoryError(`${basename(repositoryFile)} is not a regular file`);

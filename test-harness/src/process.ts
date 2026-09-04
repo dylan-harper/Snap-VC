@@ -31,7 +31,10 @@ export function deterministicEnvironment(root: string, changes?: Environment): N
   return applyEnvironment(env, changes);
 }
 
-export function applyEnvironment(base: NodeJS.ProcessEnv, changes?: Environment): NodeJS.ProcessEnv {
+export function applyEnvironment(
+  base: NodeJS.ProcessEnv,
+  changes?: Environment,
+): NodeJS.ProcessEnv {
   const env = { ...base };
   for (const [key, value] of Object.entries(changes ?? {})) {
     if (value === null) delete env[key];
@@ -74,12 +77,12 @@ export async function startProcess(
         if (error) {
           cleanupProcess(managed);
           reject(error);
-        }
-        else resolve({ managed, match: match! });
+        } else resolve({ managed, match: match! });
       };
       const check = () => {
         try {
-          const text = ready.stream === "stdout" ? managed.output.stdoutText() : managed.output.stderrText();
+          const text =
+            ready.stream === "stdout" ? managed.output.stdoutText() : managed.output.stderrText();
           const match = text.match(regex);
           if (match) finish(undefined, match);
         } catch (error) {
@@ -92,7 +95,8 @@ export async function startProcess(
       }, timeoutMs);
       managed.output.changed.add(check);
       managed.completion.then(
-        (result) => finish(new Error(`background process exited before ready (exit ${result.exitCode})`)),
+        (result) =>
+          finish(new Error(`background process exited before ready (exit ${result.exitCode})`)),
         (error) => finish(error as Error),
       );
       check();
@@ -177,9 +181,15 @@ export class OutputCollector {
     child.stderr!.on("data", (chunk: Buffer) => this.add("stderr", chunk, child));
   }
 
-  stdoutText(): string { return decode(Buffer.concat(this.stdout)); }
-  stderrText(): string { return decode(Buffer.concat(this.stderr)); }
-  finish(): void { if (this.overflow) throw this.overflow; }
+  stdoutText(): string {
+    return decode(Buffer.concat(this.stdout));
+  }
+  stderrText(): string {
+    return decode(Buffer.concat(this.stderr));
+  }
+  finish(): void {
+    if (this.overflow) throw this.overflow;
+  }
 
   private add(stream: "stdout" | "stderr", chunk: Buffer, child: ChildProcess): void {
     const next = (stream === "stdout" ? this.stdoutSize : this.stderrSize) + chunk.length;
@@ -188,8 +198,13 @@ export class OutputCollector {
       killGroup(child, "SIGKILL");
       return;
     }
-    if (stream === "stdout") { this.stdout.push(chunk); this.stdoutSize = next; }
-    else { this.stderr.push(chunk); this.stderrSize = next; }
+    if (stream === "stdout") {
+      this.stdout.push(chunk);
+      this.stdoutSize = next;
+    } else {
+      this.stderr.push(chunk);
+      this.stderrSize = next;
+    }
     for (const callback of this.changed) callback();
   }
 }
@@ -200,5 +215,13 @@ function decode(buffer: Buffer): string {
 
 function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
-  try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* exited */ } }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      /* exited */
+    }
+  }
 }

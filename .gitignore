@@ -3,3 +3,6 @@ agent_*.md
 
 # Installed dependencies
 **/node_modules/
+
+# Local Git hook configuration
+.git-hooks-path

@@ -4,7 +4,6 @@ import type {
   HttpAssertion,
   HttpRoute,
   ProcessAssertion,
-  StateAssertion,
   Step,
   StepResult,
   TestCase,
@@ -46,7 +45,10 @@ export interface RunConfig {
 export async function runCase(test: TestCase, config: RunConfig): Promise<TestResult> {
   const started = Date.now();
   const sandbox = createSandbox();
-  const variables = new Map<string, string>([["sandbox", sandbox], ["candidate", config.candidate]]);
+  const variables = new Map<string, string>([
+    ["sandbox", sandbox],
+    ["candidate", config.candidate],
+  ]);
   const processes = new Map<string, ManagedProcess>();
   const servers = new Map<string, ControlledServer>();
   const steps: StepResult[] = [];
@@ -58,7 +60,17 @@ export async function runCase(test: TestCase, config: RunConfig): Promise<TestRe
     for (const [index, step] of test.steps.entries()) {
       if (Date.now() >= deadline) throw new Error(`case timed out after ${test.timeout ?? 30}s`);
       try {
-        const result = await executeStep(step, index, sandbox, variables, processes, servers, baseEnv, config.candidate, deadline);
+        const result = await executeStep(
+          step,
+          index,
+          sandbox,
+          variables,
+          processes,
+          servers,
+          baseEnv,
+          config.candidate,
+          deadline,
+        );
         steps.push(result);
         if (!result.passed) break;
       } catch (cause) {
@@ -75,7 +87,8 @@ export async function runCase(test: TestCase, config: RunConfig): Promise<TestRe
     await Promise.allSettled([...servers.values()].map(stopControlledServer));
   }
 
-  const passed = error === undefined && steps.length === test.steps.length && steps.every((step) => step.passed);
+  const passed =
+    error === undefined && steps.length === test.steps.length && steps.every((step) => step.passed);
   const preserve = !passed && config.keepFailed === true;
   if (!preserve) rmSync(sandbox, { recursive: true, force: true });
   return {
@@ -102,23 +115,34 @@ async function executeStep(
 ): Promise<StepResult> {
   const result: StepResult = { index, label: label(step), passed: true, failures: [] };
   switch (step.type) {
-    case "mkdir": mkdirFixture(sandbox, interpolate(step.path, variables)); break;
+    case "mkdir":
+      mkdirFixture(sandbox, interpolate(step.path, variables));
+      break;
     case "write_file": {
       const path = interpolate(step.path, variables);
-      const bytes = step.text !== undefined
-        ? Buffer.from(interpolate(step.text, variables))
-        : decodeBase64(interpolate(step.base64!, variables));
+      const bytes =
+        step.text !== undefined
+          ? Buffer.from(interpolate(step.text, variables))
+          : decodeBase64(interpolate(step.base64!, variables));
       writeFixture(sandbox, path, bytes);
       break;
     }
     case "copy_tree":
       copyTree(sandbox, interpolate(step.from, variables), interpolate(step.to, variables));
       break;
-    case "remove": removeFixture(sandbox, interpolate(step.path, variables)); break;
-    case "symlink":
-      symlinkFixture(sandbox, interpolate(step.path, variables), interpolate(step.target, variables));
+    case "remove":
+      removeFixture(sandbox, interpolate(step.path, variables));
       break;
-    case "fifo": fifoFixture(sandbox, interpolate(step.path, variables)); break;
+    case "symlink":
+      symlinkFixture(
+        sandbox,
+        interpolate(step.path, variables),
+        interpolate(step.target, variables),
+      );
+      break;
+    case "fifo":
+      fifoFixture(sandbox, interpolate(step.path, variables));
+      break;
     case "run": {
       const value = step.value;
       const process = await runProcess({
@@ -133,26 +157,45 @@ async function executeStep(
       result.failures.push(...checkProcessAssertions(assertions, process));
       result.process = process;
       if (result.failures.length === 0) {
-        if (value.capture?.stdout) capture(value.capture.stdout.as, value.capture.stdout.trim ? process.stdout.trim() : process.stdout, variables);
-        if (value.capture?.stderr) capture(value.capture.stderr.as, value.capture.stderr.trim ? process.stderr.trim() : process.stderr, variables);
+        if (value.capture?.stdout)
+          capture(
+            value.capture.stdout.as,
+            value.capture.stdout.trim ? process.stdout.trim() : process.stdout,
+            variables,
+          );
+        if (value.capture?.stderr)
+          capture(
+            value.capture.stderr.as,
+            value.capture.stderr.trim ? process.stderr.trim() : process.stderr,
+            variables,
+          );
       }
       break;
     }
     case "start": {
-      if (processes.has(step.value.id)) throw new Error(`duplicate background process id: ${step.value.id}`);
-      const ready = { ...step.value.ready, pattern: interpolate(step.value.ready.pattern, variables) };
-      const started = await startProcess({
-        candidate,
-        args: (step.value.args ?? []).map((arg) => interpolate(arg, variables)),
-        cwd: sandboxDirectory(sandbox, interpolate(step.value.cwd ?? ".", variables)),
-        env: applyEnvironment(baseEnv, interpolateEnvironment(step.value.env, variables)),
-        stdin: interpolate(step.value.stdin ?? "", variables),
-      }, ready, stepTimeout(step.value.timeout, deadline));
+      if (processes.has(step.value.id))
+        throw new Error(`duplicate background process id: ${step.value.id}`);
+      const ready = {
+        ...step.value.ready,
+        pattern: interpolate(step.value.ready.pattern, variables),
+      };
+      const started = await startProcess(
+        {
+          candidate,
+          args: (step.value.args ?? []).map((arg) => interpolate(arg, variables)),
+          cwd: sandboxDirectory(sandbox, interpolate(step.value.cwd ?? ".", variables)),
+          env: applyEnvironment(baseEnv, interpolateEnvironment(step.value.env, variables)),
+          stdin: interpolate(step.value.stdin ?? "", variables),
+        },
+        ready,
+        stepTimeout(step.value.timeout, deadline),
+      );
       processes.set(step.value.id, started.managed);
       if (ready.capture) {
         const group = ready.capture.group ?? 0;
         const captured = started.match[group];
-        if (captured === undefined) throw new Error(`ready capture group ${group} did not participate`);
+        if (captured === undefined)
+          throw new Error(`ready capture group ${group} did not participate`);
         capture(ready.capture.as, captured, variables);
       }
       break;
@@ -160,14 +203,24 @@ async function executeStep(
     case "stop": {
       const process = processes.get(step.value.id);
       if (!process) throw new Error(`unknown background process: ${step.value.id}`);
-      const stopped = await stopProcess(process, step.value.signal ?? "SIGTERM", stepTimeout(step.value.timeout, deadline));
+      const stopped = await stopProcess(
+        process,
+        step.value.signal ?? "SIGTERM",
+        stepTimeout(step.value.timeout, deadline),
+      );
       processes.delete(step.value.id);
-      result.failures.push(...checkProcessAssertions(interpolateProcessAssertions(step.value.expect, variables), stopped));
+      result.failures.push(
+        ...checkProcessAssertions(
+          interpolateProcessAssertions(step.value.expect, variables),
+          stopped,
+        ),
+      );
       result.process = stopped;
       break;
     }
     case "start_http": {
-      if (servers.has(step.value.id)) throw new Error(`duplicate controlled HTTP server id: ${step.value.id}`);
+      if (servers.has(step.value.id))
+        throw new Error(`duplicate controlled HTTP server id: ${step.value.id}`);
       const routes = step.value.routes.map((route) => interpolateRoute(route, variables));
       const server = await startControlledServer(routes);
       servers.set(step.value.id, server);
@@ -189,42 +242,72 @@ async function executeStep(
         interpolateStringMap(value.headers ?? {}, variables),
         stepTimeout(value.timeout, deadline),
       );
-      result.failures.push(...checkHttpAssertions(interpolateHttpAssertions(value.expect, variables), response));
+      result.failures.push(
+        ...checkHttpAssertions(interpolateHttpAssertions(value.expect, variables), response),
+      );
       break;
     }
-    case "assert": result.failures.push(...checkStateAssertions(step.assertions, sandbox, variables, servers)); break;
+    case "assert":
+      result.failures.push(...checkStateAssertions(step.assertions, sandbox, variables, servers));
+      break;
   }
   result.passed = result.failures.length === 0;
   return result;
 }
 
-function interpolateEnvironment(env: Environment | undefined, variables: ReadonlyMap<string, string>): Environment | undefined {
+function interpolateEnvironment(
+  env: Environment | undefined,
+  variables: ReadonlyMap<string, string>,
+): Environment | undefined {
   if (env === undefined) return undefined;
-  return Object.fromEntries(Object.entries(env).map(([key, value]) => [key, value === null ? null : interpolate(value, variables)]));
+  return Object.fromEntries(
+    Object.entries(env).map(([key, value]) => [
+      key,
+      value === null ? null : interpolate(value, variables),
+    ]),
+  );
 }
 
-function interpolateStringMap(values: Record<string, string>, variables: ReadonlyMap<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, interpolate(value, variables)]));
+function interpolateStringMap(
+  values: Record<string, string>,
+  variables: ReadonlyMap<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [key, interpolate(value, variables)]),
+  );
 }
 
-function interpolateProcessAssertions(values: ProcessAssertion[], variables: ReadonlyMap<string, string>): ProcessAssertion[] {
+function interpolateProcessAssertions(
+  values: ProcessAssertion[],
+  variables: ReadonlyMap<string, string>,
+): ProcessAssertion[] {
   return values.map((assertion) => {
     switch (assertion.type) {
-      case "exit_code": return assertion;
+      case "exit_code":
+        return assertion;
       case "stdout_matches":
-      case "stderr_matches": return { ...assertion, pattern: interpolate(assertion.pattern, variables) };
-      default: return { ...assertion, value: interpolate(assertion.value, variables) };
+      case "stderr_matches":
+        return { ...assertion, pattern: interpolate(assertion.pattern, variables) };
+      default:
+        return { ...assertion, value: interpolate(assertion.value, variables) };
     }
   });
 }
 
-function interpolateHttpAssertions(values: HttpAssertion[], variables: ReadonlyMap<string, string>): HttpAssertion[] {
+function interpolateHttpAssertions(
+  values: HttpAssertion[],
+  variables: ReadonlyMap<string, string>,
+): HttpAssertion[] {
   return values.map((assertion) => {
     switch (assertion.type) {
-      case "status": return assertion;
-      case "header_equals": return { ...assertion, value: interpolate(assertion.value, variables) };
-      case "body_json_equals": return { ...assertion, value: interpolateJson(assertion.value, variables) };
-      default: return { ...assertion, value: interpolate(assertion.value, variables) };
+      case "status":
+        return assertion;
+      case "header_equals":
+        return { ...assertion, value: interpolate(assertion.value, variables) };
+      case "body_json_equals":
+        return { ...assertion, value: interpolateJson(assertion.value, variables) };
+      default:
+        return { ...assertion, value: interpolate(assertion.value, variables) };
     }
   });
 }
@@ -233,7 +316,9 @@ function interpolateRoute(route: HttpRoute, variables: ReadonlyMap<string, strin
   return {
     ...route,
     target: interpolate(route.target, variables),
-    ...(route.headers === undefined ? {} : { headers: interpolateStringMap(route.headers, variables) }),
+    ...(route.headers === undefined
+      ? {}
+      : { headers: interpolateStringMap(route.headers, variables) }),
     ...(route.text === undefined ? {} : { text: interpolate(route.text, variables) }),
     ...(route.base64 === undefined ? {} : { base64: interpolate(route.base64, variables) }),
   };

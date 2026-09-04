@@ -16,11 +16,21 @@ export async function startControlledServer(routes: HttpRoute[]): Promise<Contro
     const method = request.method ?? "GET";
     const target = request.url ?? "/";
     requests.push({ method, target });
-    const route = routes.find((candidate) => candidate.method === method && candidate.target === target);
-    if (!route) { response.statusCode = 404; response.end(); return; }
+    const route = routes.find(
+      (candidate) => candidate.method === method && candidate.target === target,
+    );
+    if (!route) {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
     response.statusCode = route.status;
-    for (const [name, value] of Object.entries(route.headers ?? {})) response.setHeader(name, value);
-    const body = route.text !== undefined ? Buffer.from(route.text) : Buffer.from(route.base64 ?? "", "base64");
+    for (const [name, value] of Object.entries(route.headers ?? {}))
+      response.setHeader(name, value);
+    const body =
+      route.text !== undefined
+        ? Buffer.from(route.text)
+        : Buffer.from(route.base64 ?? "", "base64");
     response.end(body);
   });
   await new Promise<void>((resolve, reject) => {
@@ -28,12 +38,15 @@ export async function startControlledServer(routes: HttpRoute[]): Promise<Contro
     server.listen(0, "127.0.0.1", () => resolve());
   });
   const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("controlled HTTP server has no TCP address");
+  if (address === null || typeof address === "string")
+    throw new Error("controlled HTTP server has no TCP address");
   return { server, url: `http://127.0.0.1:${address.port}`, requests };
 }
 
 export async function stopControlledServer(server: ControlledServer): Promise<void> {
-  await new Promise<void>((resolve, reject) => server.server.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) =>
+    server.server.close((error) => (error ? reject(error) : resolve())),
+  );
 }
 
 export async function performHttpRequest(
@@ -43,7 +56,8 @@ export async function performHttpRequest(
   timeoutMs: number,
 ): Promise<HttpResult> {
   const url = new URL(urlText);
-  if (url.protocol !== "http:") throw new Error(`public harness HTTP client only supports http://, got ${url.protocol}`);
+  if (url.protocol !== "http:")
+    throw new Error(`public harness HTTP client only supports http://, got ${url.protocol}`);
   if (method === "HEAD") return rawHead(url, headers, timeoutMs);
   return normalRequest(method, url, headers, timeoutMs);
 }
@@ -66,29 +80,42 @@ function normalRequest(
         }
         chunks.push(chunk);
       });
-      response.on("end", () => resolve({
-        status: response.statusCode ?? 0,
-        headers: normalizeHeaders(response.headers),
-        body: Buffer.concat(chunks),
-      }));
+      response.on("end", () =>
+        resolve({
+          status: response.statusCode ?? 0,
+          headers: normalizeHeaders(response.headers),
+          body: Buffer.concat(chunks),
+        }),
+      );
     });
     request.once("error", reject);
-    request.setTimeout(timeoutMs, () => request.destroy(new Error(`HTTP request timed out after ${timeoutMs}ms`)));
+    request.setTimeout(timeoutMs, () =>
+      request.destroy(new Error(`HTTP request timed out after ${timeoutMs}ms`)),
+    );
     request.end();
   });
 }
 
-function rawHead(url: URL, headers: Record<string, string>, timeoutMs: number): Promise<HttpResult> {
+function rawHead(
+  url: URL,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<HttpResult> {
   return new Promise((resolve, reject) => {
     const port = Number(url.port || 80);
     const socket = connect(port, url.hostname);
     const chunks: Buffer[] = [];
     let size = 0;
-    socket.setTimeout(timeoutMs, () => socket.destroy(new Error(`HTTP request timed out after ${timeoutMs}ms`)));
+    socket.setTimeout(timeoutMs, () =>
+      socket.destroy(new Error(`HTTP request timed out after ${timeoutMs}ms`)),
+    );
     socket.once("error", reject);
     socket.on("data", (chunk) => {
       size += chunk.length;
-      if (size > BODY_LIMIT) { socket.destroy(new Error("HTTP response exceeded 16 MiB limit")); return; }
+      if (size > BODY_LIMIT) {
+        socket.destroy(new Error("HTTP response exceeded 16 MiB limit"));
+        return;
+      }
       chunks.push(chunk);
     });
     socket.once("connect", () => {
@@ -99,7 +126,11 @@ function rawHead(url: URL, headers: Record<string, string>, timeoutMs: number): 
     });
     socket.once("close", (hadError) => {
       if (hadError) return;
-      try { resolve(parseRawResponse(Buffer.concat(chunks))); } catch (error) { reject(error); }
+      try {
+        resolve(parseRawResponse(Buffer.concat(chunks)));
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 }
@@ -124,6 +155,10 @@ function parseRawResponse(raw: Buffer): HttpResult {
 
 function normalizeHeaders(headers: NodeJS.Dict<string | string[]>): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(headers).flatMap(([name, value]) => value === undefined ? [] : [[name.toLowerCase(), Array.isArray(value) ? value.join(", ") : value]]),
+    Object.entries(headers).flatMap(([name, value]) =>
+      value === undefined
+        ? []
+        : [[name.toLowerCase(), Array.isArray(value) ? value.join(", ") : value]],
+    ),
   );
 }

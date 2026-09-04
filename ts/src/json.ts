@@ -118,10 +118,7 @@ class JsonScanner {
 
   private primitive(): void {
     const start = this.index;
-    while (
-      this.index < this.text.length &&
-      !/[\s,\]}]/u.test(this.text[this.index] ?? "")
-    ) {
+    while (this.index < this.text.length && !/[\s,\]}]/u.test(this.text[this.index] ?? "")) {
       this.index++;
     }
     if (this.index === start) throw new JsonError("invalid JSON value");

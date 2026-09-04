@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+project_root="$(git rev-parse --show-toplevel)"
+nvm_dir="${NVM_DIR:-${HOME:-}/.nvm}"
+if [ -s "$nvm_dir/nvm.sh" ]; then
+  export NVM_DIR="$nvm_dir"
+  . "$nvm_dir/nvm.sh"
+  nvm use --silent "$(cat "$project_root/.nvmrc")" >/dev/null
+fi
+
+npm --prefix "$project_root/ts" run precommit
+npm --prefix "$project_root/test-harness" run lint
+npm --prefix "$project_root/test-harness" run check

@@ -11,7 +11,9 @@ class JsonScanner {
   private index = 0;
   constructor(private readonly text: string) {}
 
-  done(): boolean { return this.index === this.text.length; }
+  done(): boolean {
+    return this.index === this.text.length;
+  }
 
   space(): void {
     while (/\s/.test(this.text[this.index] ?? "")) this.index++;
@@ -22,7 +24,10 @@ class JsonScanner {
     const c = this.text[this.index];
     if (c === "{") return this.object(path);
     if (c === "[") return this.array(path);
-    if (c === '"') { this.string(); return; }
+    if (c === '"') {
+      this.string();
+      return;
+    }
     this.primitive();
   }
 
@@ -30,7 +35,10 @@ class JsonScanner {
     this.index++;
     this.space();
     const keys = new Set<string>();
-    if (this.text[this.index] === "}") { this.index++; return; }
+    if (this.text[this.index] === "}") {
+      this.index++;
+      return;
+    }
     while (true) {
       this.space();
       const key = this.string();
@@ -49,7 +57,10 @@ class JsonScanner {
   private array(path: string): void {
     this.index++;
     this.space();
-    if (this.text[this.index] === "]") { this.index++; return; }
+    if (this.text[this.index] === "]") {
+      this.index++;
+      return;
+    }
     let i = 0;
     while (true) {
       this.value(`${path}[${i++}]`);

@@ -13,7 +13,9 @@ test("loader validates the versioned tagged format", () => {
   const root = mkdtempSync(join(tmpdir(), "snap-loader-test-"));
   try {
     const valid = join(root, "valid.yaml");
-    writeFileSync(valid, `
+    writeFileSync(
+      valid,
+      `
 format: 1
 name: valid
 steps:
@@ -22,11 +24,14 @@ steps:
       expect:
         - type: exit_code
           value: 0
-`);
+`,
+    );
     assert.equal(loadTest(valid).steps[0]?.type, "run");
 
     const missingExit = join(root, "missing-exit.yaml");
-    writeFileSync(missingExit, `
+    writeFileSync(
+      missingExit,
+      `
 format: 1
 name: invalid
 steps:
@@ -34,21 +39,28 @@ steps:
       expect:
         - type: stdout_equals
           value: ""
-`);
+`,
+    );
     assert.throws(() => loadTest(missingExit), /requires exactly one exit_code/);
 
     const typo = join(root, "typo.yaml");
-    writeFileSync(typo, `
+    writeFileSync(
+      typo,
+      `
 format: 1
 name: invalid
 steps:
   - mkdir:
       paths: repo
-`);
+`,
+    );
     assert.throws(() => loadTest(typo), /unknown field.*paths/);
     rmSync(missingExit);
     rmSync(typo);
-    assert.deepEqual(discoverTests(root, "valid").map((item) => item.name), ["valid"]);
+    assert.deepEqual(
+      discoverTests(root, "valid").map((item) => item.name),
+      ["valid"],
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -60,7 +72,10 @@ test("JSON parser rejects duplicate keys at any depth", () => {
 });
 
 test("interpolation is single-pass and supports literal delimiters", () => {
-  const variables = new Map([["value", "{{other}}"], ["other", "expanded"]]);
+  const variables = new Map([
+    ["value", "{{other}}"],
+    ["other", "expanded"],
+  ]);
   assert.equal(interpolate("{{value}}", variables), "{{other}}");
   assert.equal(interpolate("{{{{other}}}}", variables), "{{other}}");
   assert.throws(() => interpolate("{{missing}}", variables), /unknown variable/);
@@ -125,7 +140,9 @@ test("runner executes ordered process, filesystem, HTTP, and background operatio
   const root = mkdtempSync(join(tmpdir(), "snap-runner-test-"));
   const candidate = join(root, "candidate.mjs");
   const yaml = join(root, "case.yaml");
-  writeFileSync(candidate, `#!/usr/bin/env node
+  writeFileSync(
+    candidate,
+    `#!/usr/bin/env node
 import { createServer } from "node:http";
 const [command, ...args] = process.argv.slice(2);
 if (command === "echo") {
@@ -147,9 +164,12 @@ if (command === "echo") {
   process.stderr.write("unknown\\n");
   process.exitCode = 7;
 }
-`);
+`,
+  );
   chmodSync(candidate, 0o755);
-  writeFileSync(yaml, `
+  writeFileSync(
+    yaml,
+    `
 format: 1
 name: complete harness workflow
 timeout: 15
@@ -245,7 +265,8 @@ steps:
       id: candidate_server
       expect:
         - {type: exit_code, value: 0}
-`);
+`,
+  );
   try {
     const result = await runCase(loadTest(yaml), { candidate, keepFailed: true });
     assert.equal(result.passed, true, JSON.stringify(result, null, 2));
@@ -261,13 +282,16 @@ test("runner rejects paths that traverse a fixture symlink", async () => {
   const yaml = join(root, "case.yaml");
   writeFileSync(candidate, "#!/bin/sh\nexit 0\n");
   chmodSync(candidate, 0o755);
-  writeFileSync(yaml, `
+  writeFileSync(
+    yaml,
+    `
 format: 1
 name: confinement
 steps:
   - symlink: {path: escape, target: /tmp}
   - write_file: {path: escape/owned, text: nope}
-`);
+`,
+  );
   try {
     const result = await runCase(loadTest(yaml), { candidate });
     assert.equal(result.passed, false);
@@ -283,7 +307,9 @@ test("runner stops after the first failed assertion", async () => {
   const yaml = join(root, "case.yaml");
   writeFileSync(candidate, "#!/bin/sh\nprintf 'actual\\n'\n");
   chmodSync(candidate, 0o755);
-  writeFileSync(yaml, `
+  writeFileSync(
+    yaml,
+    `
 format: 1
 name: fail fast
 steps:
@@ -293,7 +319,8 @@ steps:
         - {type: exit_code, value: 0}
         - {type: stdout_equals, value: "expected\\n"}
   - write_file: {path: should-not-exist, text: "{{output}}"}
-`);
+`,
+  );
   try {
     const result = await runCase(loadTest(yaml), { candidate });
     assert.equal(result.passed, false);
@@ -312,16 +339,23 @@ test("runner does not follow a final symlink for file writes or working director
   try {
     for (const [name, operation, expected] of [
       ["write", "  - write_file: {path: escape, text: nope}", /write target is a symlink/],
-      ["cwd", "  - run:\n      cwd: escape\n      expect: [{type: exit_code, value: 0}]", /working directory is a symlink/],
+      [
+        "cwd",
+        "  - run:\n      cwd: escape\n      expect: [{type: exit_code, value: 0}]",
+        /working directory is a symlink/,
+      ],
     ] as const) {
       const yaml = join(root, `${name}.yaml`);
-      writeFileSync(yaml, `
+      writeFileSync(
+        yaml,
+        `
 format: 1
 name: final symlink ${name}
 steps:
   - symlink: {path: escape, target: /tmp}
 ${operation}
-`);
+`,
+      );
       const result = await runCase(loadTest(yaml), { candidate });
       assert.equal(result.passed, false);
       assert.match(result.error ?? "", expected);

@@ -29,7 +29,8 @@ export function createSandbox(): string {
 }
 
 export function sandboxPath(root: string, input: string, allowRoot = true): string {
-  if (input.includes("\0") || isAbsolute(input)) throw new Error(`path must be sandbox-relative: ${input}`);
+  if (input.includes("\0") || isAbsolute(input))
+    throw new Error(`path must be sandbox-relative: ${input}`);
   const normalized = normalize(input);
   if (normalized !== input && !(input === "." && normalized === ".")) {
     throw new Error(`path must be normalized: ${input}`);
@@ -56,7 +57,8 @@ function rejectSymlinkAncestors(root: string, target: string): void {
   for (const part of rel.split(sep)) {
     current = join(current, part);
     if (!existsSync(current)) break;
-    if (lstatSync(current).isSymbolicLink()) throw new Error(`path traverses symlink: ${relative(root, current)}`);
+    if (lstatSync(current).isSymbolicLink())
+      throw new Error(`path traverses symlink: ${relative(root, current)}`);
   }
 }
 
@@ -87,7 +89,8 @@ export function copyTree(root: string, from: string, to: string): void {
 
 export function removeFixture(root: string, path: string): void {
   const target = sandboxPath(root, path, false);
-  if (!existsSync(target) && !isSymlink(target)) throw new Error(`remove target does not exist: ${path}`);
+  if (!existsSync(target) && !isSymlink(target))
+    throw new Error(`remove target does not exist: ${path}`);
   rmSync(target, { recursive: true, force: false });
 }
 
@@ -142,5 +145,9 @@ function kindOf(stat: Stats): EntryKind {
 }
 
 function isSymlink(path: string): boolean {
-  try { return lstatSync(path).isSymbolicLink(); } catch { return false; }
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
