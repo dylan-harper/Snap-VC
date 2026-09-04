@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
+    "test": "tsx --test test/presentation.test.ts test/versions.test.ts",
     "build": "tsc --noEmit",
-    "lint": "eslint src",
-    "format:check": "prettier --check \"src/**/*.ts\" \"../test-harness/src/**/*.ts\" \"../test-harness/test/**/*.ts\"",
-    "format": "prettier --write \"src/**/*.ts\" \"../test-harness/src/**/*.ts\" \"../test-harness/test/**/*.ts\"",
+    "lint": "eslint src test",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"../test-harness/src/**/*.ts\" \"../test-harness/test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"../test-harness/src/**/*.ts\" \"../test-harness/test/**/*.ts\"",
     "precommit": "npm run lint && npm run format:check && npm run build"
   },
   "devDependencies": {
