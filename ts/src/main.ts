@@ -1,4 +1,13 @@
-import { commit, CommandError, diff, log, revert, status } from "./commands.js";
+import {
+  commit,
+  CommandError,
+  diff,
+  loadRepository,
+  log,
+  repositoryJson,
+  revert,
+  status,
+} from "./commands.js";
 import { resolve } from "node:path";
 import { ConfigError, writeGlobalConfig, writeLocalConfig } from "./config.js";
 import { JsonError } from "./json.js";
@@ -15,12 +24,31 @@ import {
 } from "./presentation.js";
 import { formatCliVersion, VersionError } from "./versions.js";
 import { WorkingTreeError } from "./working_tree.js";
+import { HttpRepositoryError, parseServerPort, startRepositoryServer } from "./http.js";
 
 async function main(): Promise<void> {
   const [command, ...arguments_] = process.argv.slice(2);
   presentationMode();
   if (command === "--version" && arguments_.length === 0) {
     process.stdout.write(renderVersion(formatCliVersion(), process.stdout.isTTY));
+    return;
+  }
+  if (command === "--serve" && (arguments_.length === 0 || arguments_.length === 1)) {
+    const port = parseServerPort(arguments_[0]);
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    const loaded = await loadRepository(root);
+    const server = await startRepositoryServer(repositoryJson(loaded.model), port);
+    process.stdout.write(`${server.url}\n`);
+    await new Promise<void>((resolve) => {
+      const shutdown = (): void => {
+        process.off("SIGINT", shutdown);
+        process.off("SIGTERM", shutdown);
+        void server.close().then(resolve, resolve);
+      };
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
+    });
     return;
   }
   if (
@@ -98,7 +126,10 @@ async function main(): Promise<void> {
     let repositoryRoot: string | undefined;
     if (arguments_.length === 4) {
       if (arguments_[2] !== "--repo" || arguments_[3] === undefined) usage();
-      repositoryRoot = resolve(process.cwd(), arguments_[3] as string);
+      const repository = arguments_[3] as string;
+      repositoryRoot = /^(?:http|https):\/\//u.test(repository)
+        ? repository
+        : resolve(process.cwd(), repository);
     }
     const root = findRepositoryRoot(process.cwd());
     if (root === undefined) throw new RepositoryError("not a Snap repository");
@@ -126,7 +157,8 @@ try {
     error instanceof VersionError ||
     error instanceof CommandError ||
     error instanceof RepositoryModelError ||
-    error instanceof WorkingTreeError
+    error instanceof WorkingTreeError ||
+    error instanceof HttpRepositoryError
       ? 1
       : 2;
 }

@@ -15,6 +15,7 @@ import {
 import { readRepositoryJson, repositoryPath } from "./repository.js";
 import { scanWorkingTree } from "./working_tree.js";
 import { formatVersion, parseVersion, snapCompare, versionToPairs } from "./versions.js";
+import { fetchRepositoryJson } from "./http.js";
 
 export class CommandError extends Error {
   public constructor(message: string) {
@@ -118,6 +119,19 @@ export async function loadRepository(root: string): Promise<{
   }
 }
 
+async function loadRepositoryJson(json: string): Promise<{
+  readonly model: RepositoryModel;
+  readonly tree: Tree;
+}> {
+  try {
+    const model = parseRepository(json);
+    return { model, tree: materializeLinearRepository(model) };
+  } catch (error) {
+    if (error instanceof CommandError || error instanceof RepositoryModelError) throw error;
+    throw new CommandError(error instanceof Error ? error.message : "invalid repository");
+  }
+}
+
 function patchFingerprint(patch: Patch): string {
   return JSON.stringify({
     author: patch.author,
@@ -181,7 +195,12 @@ export async function diff(
   } catch {
     throw new CommandError(`invalid version: ${newText}`);
   }
-  const other = repositoryRoot === undefined ? local : await loadRepository(repositoryRoot);
+  const other =
+    repositoryRoot === undefined
+      ? local
+      : /^(?:http|https):\/\//u.test(repositoryRoot)
+        ? await loadRepositoryJson(await fetchRepositoryJson(repositoryRoot))
+        : await loadRepository(repositoryRoot);
   if (repositoryRoot !== undefined) checkPatchCollisions(local.model, other.model);
   let oldTree: Tree;
   let newTree: Tree;
@@ -252,7 +271,7 @@ function changesForCommit(oldTree: Tree, newTree: Tree): Change[] {
   return changes;
 }
 
-function repositoryJson(model: RepositoryModel): string {
+export function repositoryJson(model: RepositoryModel): string {
   return `${JSON.stringify(
     {
       format: 1,
