@@ -93,6 +93,24 @@ export function renderLog(plain: string, isTty: boolean | undefined): string {
     .join("\n");
 }
 
+export function renderDiff(plain: string, isTty: boolean | undefined): string {
+  if (!useTerminalPresentation(isTty) || plain === "") return plain;
+  return plain
+    .split(/(?<=\n)/u)
+    .map((line) => {
+      const body = line.endsWith("\n") ? line.slice(0, -1) : line;
+      const ending = line.endsWith("\n") ? "\n" : "";
+      if (body.startsWith("Binary files ")) return `${style(33, body)}${ending}`;
+      if (body.startsWith("--- ") || body.startsWith("+++ ")) return `${style(1, body)}${ending}`;
+      if (body.startsWith("@@ ")) return `${style(36, body)}${ending}`;
+      if (body.startsWith("\\ No newline")) return `${style(2, body)}${ending}`;
+      if (body.startsWith("+")) return `${style(32, body)}${ending}`;
+      if (body.startsWith("-")) return `${style(31, body)}${ending}`;
+      return line;
+    })
+    .join("");
+}
+
 export function renderError(message: string, isTty: boolean | undefined): string {
   try {
     const enabled = useTerminalPresentation(isTty);

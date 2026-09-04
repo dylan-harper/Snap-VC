@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { rename, unlink, writeFile } from "node:fs/promises";
 import { resolveContributorId } from "./config.js";
-import { canonicalTextDiff, classifyFile } from "./text_diff.js";
+import { canonicalTextDiff, classifyFile, renderFileDiff } from "./text_diff.js";
 import {
   type Change,
   type EditOperation,
@@ -9,11 +9,12 @@ import {
   parseRepository,
   type RepositoryModel,
   type Tree,
+  type Version,
   RepositoryModelError,
 } from "./repository_model.js";
 import { readRepositoryJson, repositoryPath } from "./repository.js";
 import { scanWorkingTree } from "./working_tree.js";
-import { formatVersion, snapCompare, versionToPairs } from "./versions.js";
+import { formatVersion, parseVersion, snapCompare, versionToPairs } from "./versions.js";
 
 export class CommandError extends Error {
   public constructor(message: string) {
@@ -52,9 +53,11 @@ function applyChange(tree: Map<string, Uint8Array>, change: Change): void {
 }
 
 /** Replay histories whose selected patches have materializable single-patch bases. */
-export function materializeLinearRepository(model: RepositoryModel): Tree {
+export function materializeVersion(model: RepositoryModel, target: Version): Tree {
   const built = new Map<string, Tree>([[formatVersion(new Map()), new Map()]]);
-  const pending = new Set(model.patches);
+  const pending = new Set(
+    model.patches.filter((patch) => patch.revision <= (target.get(patch.author) ?? 0)),
+  );
   while (pending.size > 0) {
     const ready = [...pending].filter((patch) =>
       [...patch.base].every(([id, revision]) => {
@@ -87,7 +90,7 @@ export function materializeLinearRepository(model: RepositoryModel): Tree {
     built.set(formatVersion(resultVersion), nextTree);
     pending.delete(patch);
   }
-  const frontierTree = built.get(formatVersion(model.frontier));
+  const frontierTree = built.get(formatVersion(target));
   if (frontierTree === undefined) {
     throw new CommandError("unsupported concurrent patch history");
   }
@@ -96,6 +99,10 @@ export function materializeLinearRepository(model: RepositoryModel): Tree {
       Buffer.from(left).compare(Buffer.from(right)),
     ),
   );
+}
+
+export function materializeLinearRepository(model: RepositoryModel): Tree {
+  return materializeVersion(model, model.frontier);
 }
 
 export async function loadRepository(root: string): Promise<{
@@ -109,6 +116,86 @@ export async function loadRepository(root: string): Promise<{
     if (error instanceof CommandError || error instanceof RepositoryModelError) throw error;
     throw new CommandError(error instanceof Error ? error.message : "invalid repository");
   }
+}
+
+function patchFingerprint(patch: Patch): string {
+  return JSON.stringify({
+    author: patch.author,
+    revision: patch.revision,
+    base: versionToPairs(patch.base),
+    message: patch.message,
+    changes: patch.changes.map((change) =>
+      change.type === "put"
+        ? {
+            type: change.type,
+            path: change.path,
+            content: Buffer.from(change.content).toString("base64"),
+          }
+        : change,
+    ),
+  });
+}
+
+function checkPatchCollisions(left: RepositoryModel, right: RepositoryModel): void {
+  const patches = new Map(
+    left.patches.map((patch) => [`${patch.author}\u0000${patch.revision}`, patch]),
+  );
+  for (const patch of right.patches) {
+    const existing = patches.get(`${patch.author}\u0000${patch.revision}`);
+    if (existing !== undefined && patchFingerprint(existing) !== patchFingerprint(patch)) {
+      throw new CommandError(`patch collision: ${patch.author} revision ${patch.revision}`);
+    }
+  }
+}
+
+function renderTreeDiff(oldTree: Tree, newTree: Tree): string {
+  let output = "";
+  for (const path of sortedPaths(oldTree, newTree)) {
+    output += renderFileDiff(path, oldTree.get(path), newTree.get(path));
+  }
+  return output;
+}
+
+export async function diff(
+  root: string,
+  oldText?: string,
+  newText?: string,
+  repositoryRoot?: string,
+): Promise<string> {
+  const local = await loadRepository(root);
+  if (oldText === undefined && newText === undefined) {
+    return renderTreeDiff(local.tree, await scanWorkingTree(root));
+  }
+  if (oldText === undefined || newText === undefined) {
+    throw new CommandError("usage: snap diff <old> <new> [--repo <repository>]");
+  }
+  let oldVersion: Version;
+  let newVersion: Version;
+  try {
+    oldVersion = parseVersion(oldText);
+  } catch {
+    throw new CommandError(`invalid version: ${oldText}`);
+  }
+  try {
+    newVersion = parseVersion(newText);
+  } catch {
+    throw new CommandError(`invalid version: ${newText}`);
+  }
+  const other = repositoryRoot === undefined ? local : await loadRepository(repositoryRoot);
+  if (repositoryRoot !== undefined) checkPatchCollisions(local.model, other.model);
+  let oldTree: Tree;
+  let newTree: Tree;
+  try {
+    oldTree = materializeVersion(local.model, oldVersion);
+  } catch {
+    throw new CommandError(`unknown version: ${oldText}`);
+  }
+  try {
+    newTree = materializeVersion(other.model, newVersion);
+  } catch {
+    throw new CommandError(`unknown version: ${newText}`);
+  }
+  return renderTreeDiff(oldTree, newTree);
 }
 
 function sortedPaths(left: Tree, right: Tree): string[] {

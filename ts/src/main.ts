@@ -1,10 +1,12 @@
-import { commit, CommandError, log, status } from "./commands.js";
+import { commit, CommandError, diff, log, status } from "./commands.js";
+import { resolve } from "node:path";
 import { ConfigError, writeGlobalConfig, writeLocalConfig } from "./config.js";
 import { JsonError } from "./json.js";
 import { findRepositoryRoot, initializeRepository, RepositoryError } from "./repository.js";
 import { RepositoryModelError } from "./repository_model.js";
 import {
   renderError,
+  renderDiff,
   renderLog,
   renderStatus,
   renderSuccess,
@@ -68,6 +70,35 @@ async function main(): Promise<void> {
     if (root === undefined) throw new RepositoryError("not a Snap repository");
     process.stdout.write(
       renderSuccess("commit", await commit(root, arguments_[0]), process.stdout.isTTY),
+    );
+    return;
+  }
+  if (command === "diff") {
+    const usage = (): never => {
+      throw new CommandError("usage: snap diff <old> <new> [--repo <repository>]");
+    };
+    if (arguments_.length === 0) {
+      const root = findRepositoryRoot(process.cwd());
+      if (root === undefined) throw new RepositoryError("not a Snap repository");
+      process.stdout.write(renderDiff(await diff(root), process.stdout.isTTY));
+      return;
+    }
+    if (arguments_.length !== 2 && arguments_.length !== 4) usage();
+    const oldVersion = arguments_[0];
+    const newVersion = arguments_[1];
+    if (oldVersion === undefined || newVersion === undefined) usage();
+    let repositoryRoot: string | undefined;
+    if (arguments_.length === 4) {
+      if (arguments_[2] !== "--repo" || arguments_[3] === undefined) usage();
+      repositoryRoot = resolve(process.cwd(), arguments_[3] as string);
+    }
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    process.stdout.write(
+      renderDiff(
+        await diff(root, oldVersion as string, newVersion as string, repositoryRoot),
+        process.stdout.isTTY,
+      ),
     );
     return;
   }
