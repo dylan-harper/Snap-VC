@@ -3,11 +3,24 @@ import { ConfigError, writeGlobalConfig, writeLocalConfig } from "./config.js";
 import { JsonError } from "./json.js";
 import { findRepositoryRoot, initializeRepository, RepositoryError } from "./repository.js";
 import { RepositoryModelError } from "./repository_model.js";
-import { VersionError } from "./versions.js";
+import {
+  renderError,
+  renderLog,
+  renderStatus,
+  renderSuccess,
+  renderVersion,
+  presentationMode,
+} from "./presentation.js";
+import { formatCliVersion, VersionError } from "./versions.js";
 import { WorkingTreeError } from "./working_tree.js";
 
 async function main(): Promise<void> {
   const [command, ...arguments_] = process.argv.slice(2);
+  presentationMode();
+  if (command === "--version" && arguments_.length === 0) {
+    process.stdout.write(renderVersion(formatCliVersion(), process.stdout.isTTY));
+    return;
+  }
   if (
     command === "init" &&
     (arguments_.length === 0 || arguments_.length === 1) &&
@@ -15,7 +28,7 @@ async function main(): Promise<void> {
   ) {
     const root = arguments_[0] ?? process.cwd();
     await initializeRepository(root);
-    process.stdout.write("()\n");
+    process.stdout.write(renderSuccess("init", "()", process.stdout.isTTY));
     return;
   }
   if (command === "config") {
@@ -41,19 +54,21 @@ async function main(): Promise<void> {
   if (command === "status" && arguments_.length === 0) {
     const root = findRepositoryRoot(process.cwd());
     if (root === undefined) throw new RepositoryError("not a Snap repository");
-    process.stdout.write(await status(root));
+    process.stdout.write(renderStatus(await status(root), process.stdout.isTTY));
     return;
   }
   if (command === "log" && arguments_.length === 0) {
     const root = findRepositoryRoot(process.cwd());
     if (root === undefined) throw new RepositoryError("not a Snap repository");
-    process.stdout.write(await log(root));
+    process.stdout.write(renderLog(await log(root), process.stdout.isTTY));
     return;
   }
   if (command === "commit" && arguments_.length === 1 && arguments_[0] !== undefined) {
     const root = findRepositoryRoot(process.cwd());
     if (root === undefined) throw new RepositoryError("not a Snap repository");
-    process.stdout.write(`${await commit(root, arguments_[0])}\n`);
+    process.stdout.write(
+      renderSuccess("commit", await commit(root, arguments_[0]), process.stdout.isTTY),
+    );
     return;
   }
   throw new RepositoryError("invalid command or arguments");
@@ -63,7 +78,8 @@ try {
   await main();
 } catch (error) {
   const message = error instanceof Error ? error.message : "unknown error";
-  process.stderr.write(`snap: ${message}\n`);
+  const rendered = renderError(message, process.stderr.isTTY);
+  process.stderr.write(`${rendered}\n`);
   process.exitCode =
     error instanceof RepositoryError ||
     error instanceof ConfigError ||

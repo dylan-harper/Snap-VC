@@ -1,4 +1,5 @@
 export const MAX_REVISION = Number.MAX_SAFE_INTEGER;
+export const SNAP_VERSION = "1.0.0";
 
 export type Revision = number;
 export type VersionPairs = ReadonlyArray<readonly [string, Revision]>;
@@ -125,6 +126,10 @@ export function formatVersion(version: ReadonlyMap<string, Revision>): string {
   return pairs.length === 0
     ? "()"
     : `(${pairs.map(([id, revision]) => `${id}->${revision}`).join(",")})`;
+}
+
+export function formatCliVersion(): string {
+  return `snap ${SNAP_VERSION}`;
 }
 
 export function joinVersions(
