@@ -1,0 +1,136 @@
+format: 1
+name: audit regressions cover causal namespaces canonical log order and identity errors
+steps:
+  - run:
+      args: [init, file-to-directory]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "()\n"}
+        - {type: stderr_equals, value: ""}
+  - run:
+      cwd: file-to-directory
+      args: [config, contributor.id, alice@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: file-to-directory/node, text: "file\n"}
+  - run:
+      cwd: file-to-directory
+      args: [commit, file]
+      expect: [{type: exit_code, value: 0}]
+  - copy_tree: {from: file-to-directory, to: file-to-directory-target}
+  - remove: {path: file-to-directory/node}
+  - write_file: {path: file-to-directory/node/child, text: "child\n"}
+  - run:
+      cwd: file-to-directory
+      args: [commit, directory]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: file-to-directory-target
+      args: [merge, ../file-to-directory]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stderr_equals, value: ""}
+  - assert:
+      - type: path_exists
+        path: file-to-directory-target/node
+        kind: directory
+      - type: file_text_equals
+        path: file-to-directory-target/node/child
+        value: "child\n"
+
+  - run:
+      args: [init, directory-to-file]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "()\n"}
+        - {type: stderr_equals, value: ""}
+  - run:
+      cwd: directory-to-file
+      args: [config, contributor.id, bob@x]
+      expect: [{type: exit_code, value: 0}]
+  - mkdir: {path: directory-to-file/node}
+  - write_file: {path: directory-to-file/node/child, text: "child\n"}
+  - run:
+      cwd: directory-to-file
+      args: [commit, directory]
+      expect: [{type: exit_code, value: 0}]
+  - copy_tree: {from: directory-to-file, to: directory-to-file-target}
+  - remove: {path: directory-to-file/node}
+  - write_file: {path: directory-to-file/node, text: "file\n"}
+  - run:
+      cwd: directory-to-file
+      args: [commit, file]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: directory-to-file-target
+      args: [merge, ../directory-to-file]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stderr_equals, value: ""}
+  - assert:
+      - type: path_exists
+        path: directory-to-file-target/node
+        kind: file
+      - type: file_text_equals
+        path: directory-to-file-target/node
+        value: "file\n"
+
+  - run:
+      args: [init, log-a]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "()\n"}
+        - {type: stderr_equals, value: ""}
+  - run:
+      args: [init, log-b]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "()\n"}
+        - {type: stderr_equals, value: ""}
+  - run:
+      cwd: log-a
+      args: [config, contributor.id, a@x]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: log-b
+      args: [config, contributor.id, b@x]
+      expect: [{type: exit_code, value: 0}]
+  - write_file: {path: log-a/a.txt, text: "a\n"}
+  - write_file: {path: log-b/b.txt, text: "b\n"}
+  - run:
+      cwd: log-a
+      args: [commit, a-change]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: log-b
+      args: [commit, b-change]
+      expect: [{type: exit_code, value: 0}]
+  - run:
+      cwd: log-a
+      args: [merge, ../log-b]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stderr_equals, value: ""}
+  - run:
+      cwd: log-a
+      args: [log]
+      expect:
+        - {type: exit_code, value: 0}
+        - type: stdout_equals
+          value: "(a@x->1)\ta@x\ta-change\n(b@x->1)\tb@x\tb-change\n"
+        - {type: stderr_equals, value: ""}
+
+  - run:
+      args: [init, missing-identity]
+      expect:
+        - {type: exit_code, value: 0}
+        - {type: stdout_equals, value: "()\n"}
+        - {type: stderr_equals, value: ""}
+  - write_file: {path: missing-identity/file.txt, text: "content\n"}
+  - run:
+      cwd: missing-identity
+      env: {HOME: null}
+      args: [commit, missing identity]
+      expect:
+        - {type: exit_code, value: 1}
+        - {type: stdout_equals, value: ""}
+        - {type: stderr_equals, value: "snap: contributor.id is required; configure it locally or globally\n"}

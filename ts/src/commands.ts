@@ -14,7 +14,7 @@ import {
 } from "./repository_model.js";
 import { readRepositoryJson, repositoryPath } from "./repository.js";
 import { scanWorkingTree } from "./working_tree.js";
-import { formatVersion, parseVersion, versionToPairs } from "./versions.js";
+import { formatVersion, parseVersion, snapCompare, versionToPairs } from "./versions.js";
 import { fetchRepositoryJson } from "./http.js";
 import { joinVersions } from "./versions.js";
 import { materializeVersion, replayRepository } from "./replay.js";
@@ -25,6 +25,8 @@ export class CommandError extends Error {
     this.name = "CommandError";
   }
 }
+
+const MISSING_CONTRIBUTOR_ERROR = "contributor.id is required; configure it locally or globally";
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return Buffer.from(left).equals(Buffer.from(right));
@@ -96,6 +98,46 @@ function checkPatchCollisions(left: RepositoryModel, right: RepositoryModel): vo
       throw new CommandError(`patch collision: ${patch.author} revision ${patch.revision}`);
     }
   }
+}
+
+function patchResultVersion(patch: Patch): Version {
+  const result = new Map(patch.base);
+  result.set(patch.author, patch.revision);
+  return result;
+}
+
+function patchReady(patch: Patch, pending: ReadonlySet<Patch>): boolean {
+  return [...patch.base].every(([author, revision]) => {
+    for (let number = 1; number <= revision; number += 1) {
+      if (
+        [...pending].some(
+          (candidate) => candidate.author === author && candidate.revision === number,
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function canonicalPatchOrder(model: RepositoryModel): Patch[] {
+  const pending = new Set(model.patches);
+  const ordered: Patch[] = [];
+  while (pending.size > 0) {
+    const ready = [...pending].filter((patch) => patchReady(patch, pending));
+    ready.sort(
+      (left, right) =>
+        snapCompare(patchResultVersion(left), patchResultVersion(right)) ||
+        Buffer.from(left.author).compare(Buffer.from(right.author)) ||
+        left.revision - right.revision,
+    );
+    const patch = ready[0];
+    if (patch === undefined) throw new CommandError("cyclic or incomplete patch history");
+    ordered.push(patch);
+    pending.delete(patch);
+  }
+  return ordered;
 }
 
 function renderTreeDiff(oldTree: Tree, newTree: Tree): string {
@@ -179,7 +221,7 @@ function escapeMessage(message: string): string {
 
 export async function log(root: string): Promise<string> {
   const { model } = await loadRepository(root);
-  return [...model.patches]
+  return canonicalPatchOrder(model)
     .reverse()
     .map(
       (patch) =>
@@ -322,7 +364,7 @@ export async function commit(
   const changes = changesForCommit(tree, actual);
   if (changes.length === 0) throw new CommandError("working tree is clean");
   const author = await resolveContributorId(root, home);
-  if (author === undefined) throw new CommandError("contributor id is not configured");
+  if (author === undefined) throw new CommandError(MISSING_CONTRIBUTOR_ERROR);
   const revision = (model.frontier.get(author) ?? 0) + 1;
   const patch: Patch = { author, revision, base: model.frontier, message, changes };
   const frontier = new Map(model.frontier);
@@ -356,7 +398,7 @@ export async function revert(
   if (treesEqual(tree, targetTree)) throw new CommandError("target tree is already current");
   const author = await resolveContributorId(root, home);
   if (author === undefined) {
-    throw new CommandError("contributor.id is required; configure it locally or globally");
+    throw new CommandError(MISSING_CONTRIBUTOR_ERROR);
   }
   const revision = (model.frontier.get(author) ?? 0) + 1;
   const patch: Patch = {

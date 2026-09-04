@@ -166,7 +166,12 @@ function integratePatch(
   const authored = new Map(base);
   for (const change of patch.changes) applyChange(authored, change);
   validatePrefixFree(authored.keys());
-  const result = new Map(current);
+  const authoredDeletions = new Set(
+    patch.changes.filter((change) => change.type === "delete").map((change) => change.path),
+  );
+  // C' excludes paths that this patch explicitly deletes before namespace
+  // conflicts are compared, so causal file/directory transitions are quiet.
+  const result = new Map([...current].filter(([path]) => !authoredDeletions.has(path)));
   const warnings = new Set<string>();
   const namespaceRemovals = new Set<string>();
   const namespaceCandidates = new Set<string>();
@@ -175,7 +180,7 @@ function integratePatch(
     if (authored.has(change.path)) namespaceCandidates.add(change.path);
   }
   for (const path of namespaceCandidates) {
-    for (const currentPath of current.keys()) {
+    for (const currentPath of result.keys()) {
       if (currentPath === path) continue;
       if (currentPath.startsWith(`${path}/`) || path.startsWith(`${currentPath}/`)) {
         namespaceRemovals.add(currentPath);
