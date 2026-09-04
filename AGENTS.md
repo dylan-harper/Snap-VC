@@ -28,7 +28,7 @@ their meaning.
 After implementation changes, run the shared acceptance suite:
 
 ```bash
-./capstones/snap/verify --lang ts
+./verify --lang ts
 ```
 
 Replace `ts` with `rust` or `scala` when appropriate.
@@ -37,7 +37,7 @@ Replace `ts` with `rust` or `scala` when appropriate.
 After harness changes, also run:
 
 ```bash
-cd capstones/snap/test-harness
+cd test-harness
 npm run check
 npm test
 ```

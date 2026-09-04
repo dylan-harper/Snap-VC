@@ -41,12 +41,18 @@ From the repository root:
 
 ```bash
 SNAP_ROOT="$(pwd)"
-./run init /tmp/example
-./run config --global contributor.id you@example.com
-cd /tmp/example
-echo hello > hello.txt
-"$SNAP_ROOT/run" commit "add greeting"
+SNAP_DEMO="$(mktemp -d "${TMPDIR:-/tmp}/snap-example.XXXXXX")"
+./run init "$SNAP_DEMO"
+(
+  cd "$SNAP_DEMO"
+  "$SNAP_ROOT/run" config contributor.id you@example.com
+  printf 'hello\n' > hello.txt
+  "$SNAP_ROOT/run" commit "add greeting"
+)
 ```
+
+This example writes configuration only inside the temporary demonstration
+repository. Remove `"$SNAP_DEMO"` when you are finished with it.
 
 Choose the bundled implementation language explicitly when needed:
 

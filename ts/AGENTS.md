@@ -17,7 +17,8 @@ The scaffold contains no private language-specific test suite. Run the packaged
 language-neutral verifier from the repository root:
 
 ```bash
-./capstones/snap/verify --lang ts
+cd ..
+./verify --lang ts
 ```
 
 Production code should use Node built-ins; `tsx`, TypeScript, and Node typings
