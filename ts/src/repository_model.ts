@@ -60,6 +60,10 @@ function exact(value: Record<string, unknown>, keys: readonly string[]): boolean
   return actual.length === keys.length && keys.every((key) => actual.includes(key));
 }
 
+function unknownField(value: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  return Object.keys(value).find((key) => !keys.includes(key));
+}
+
 function utf8Compare(left: string, right: string): number {
   return Buffer.from(left, "utf8").compare(Buffer.from(right, "utf8"));
 }
@@ -89,7 +93,8 @@ function isPositiveSafeInteger(value: unknown): value is number {
 }
 
 function parseMessage(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0) fail("message is empty or invalid");
+  if (value === "") fail("patch message is empty");
+  if (typeof value !== "string") fail("patch message is invalid");
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)) {
     fail("message contains control character");
   }
@@ -132,7 +137,8 @@ function parseEdit(value: unknown): readonly EditOperation[] {
       previous = kind;
       result.push(kind === "retain" ? { retain: operand } : { delete: operand });
     } else if (kind === "insert") {
-      if (!Array.isArray(operand) || operand.length === 0) fail("insert is empty or invalid");
+      if (!Array.isArray(operand)) fail("insert is invalid");
+      if (operand.length === 0) fail("text insert is empty");
       if (previous === kind) fail("adjacent insert operations are forbidden");
       const tokens = operand.map(parseTextToken);
       for (let index = 0; index < tokens.length - 1; index += 1) {
@@ -150,16 +156,22 @@ function parseEdit(value: unknown): readonly EditOperation[] {
 function parseChange(value: unknown): Change {
   if (!record(value) || typeof value.type !== "string") fail("invalid change");
   if (value.type === "delete") {
+    const extra = unknownField(value, ["type", "path"]);
+    if (extra !== undefined) fail(`change has unknown field: ${extra}`);
     if (!exact(value, ["type", "path"]) || typeof value.path !== "string")
       fail("invalid delete change");
     return { type: "delete", path: validatePath(value.path) };
   }
   if (value.type === "put") {
+    const extra = unknownField(value, ["type", "path", "content"]);
+    if (extra !== undefined) fail(`change has unknown field: ${extra}`);
     if (!exact(value, ["type", "path", "content"]) || typeof value.path !== "string")
       fail("invalid put change");
     return { type: "put", path: validatePath(value.path), content: parseBase64(value.content) };
   }
   if (value.type === "text") {
+    const extra = unknownField(value, ["type", "path", "edit"]);
+    if (extra !== undefined) fail(`change has unknown field: ${extra}`);
     if (!exact(value, ["type", "path", "edit"]) || typeof value.path !== "string")
       fail("invalid text change");
     return { type: "text", path: validatePath(value.path), edit: parseEdit(value.edit) };
@@ -188,8 +200,8 @@ function parsePatch(value: unknown): Patch {
   }
   const base = parseVersionValue(value.base);
   const message = parseMessage(value.message);
-  if (!Array.isArray(value.changes) || value.changes.length === 0)
-    fail("changes is empty or invalid");
+  if (!Array.isArray(value.changes)) fail("patch changes is invalid");
+  if (value.changes.length === 0) fail("patch changes is empty");
   const changes = value.changes.map(parseChange);
   for (let index = 1; index < changes.length; index += 1) {
     const previous = changes[index - 1];
@@ -292,7 +304,10 @@ function versionKey(version: Version): string {
 /** Parse strict repository JSON and validate its complete causal history. */
 export function parseRepository(text: unknown): RepositoryModel {
   const value = parseJsonUnique(text);
-  if (!record(value) || !exact(value, ["format", "frontier", "patches"]) || value.format !== 1)
+  if (!record(value)) fail("invalid repository schema");
+  const extra = unknownField(value, ["format", "frontier", "patches"]);
+  if (extra !== undefined) fail(`repository has unknown field: ${extra}`);
+  if (!exact(value, ["format", "frontier", "patches"]) || value.format !== 1)
     fail("invalid repository schema");
   const frontier = parseVersionValue(value.frontier);
   if (!Array.isArray(value.patches)) fail("patches must be an array");

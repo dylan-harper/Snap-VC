@@ -2,7 +2,7 @@ import { lstat, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 
-import { parseJsonUnique } from "./json.js";
+import { JsonError, parseJsonUnique } from "./json.js";
 import { validateContributorId } from "./versions.js";
 
 export interface ContributorConfig {
@@ -27,7 +27,22 @@ function configError(message: string): ConfigError {
 
 /** Parse and strictly validate the complete on-disk configuration shape. */
 export function parseConfig(text: unknown): ContributorConfig {
-  const value = parseJsonUnique(text);
+  let value: unknown;
+  if (typeof text === "string") {
+    try {
+      JSON.parse(text);
+    } catch (error) {
+      if (error instanceof Error) throw configError(`invalid JSON: ${error.message}`);
+      throw configError("invalid JSON");
+    }
+  }
+  try {
+    value = parseJsonUnique(text);
+  } catch (error) {
+    if (error instanceof JsonError) throw configError(error.message);
+    if (error instanceof Error) throw configError(`invalid JSON: ${error.message}`);
+    throw configError("invalid JSON");
+  }
   if (!isRecord(value) || !hasExactly(value, ["contributor"])) {
     throw configError("invalid configuration");
   }
