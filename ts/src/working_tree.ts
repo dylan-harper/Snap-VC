@@ -1,6 +1,7 @@
 import { lstat, open, readdir } from "node:fs/promises";
 import { O_NOFOLLOW, O_RDONLY } from "node:constants";
 import { basename, join, relative, resolve } from "node:path";
+import { UnicodeError, decodeUtf8, validateUnicodeString } from "./utf8.js";
 
 /** A materialized Snap tree: tracked paths mapped to their exact bytes. */
 export type WorkingTree = ReadonlyMap<string, Uint8Array>;
@@ -34,6 +35,12 @@ function isMissing(error: unknown): boolean {
 export function validateTrackedPath(path: string): string {
   if (typeof path !== "string" || path.length === 0) {
     throw new WorkingTreeError("invalid tracked path");
+  }
+  try {
+    validateUnicodeString(path, "tracked path");
+  } catch (error) {
+    if (error instanceof UnicodeError) throw new WorkingTreeError("invalid tracked path");
+    throw error;
   }
   if (path.includes("\\") || path.includes("\0") || /[\u0000-\u001f\u007f]/u.test(path)) {
     throw new WorkingTreeError(`invalid tracked path: ${path}`);
@@ -133,7 +140,7 @@ async function readDirectoryNames(
 
   if (descriptor !== undefined) {
     try {
-      return await readdir(descriptor);
+      return await readDirectoryNamesAsUtf8(descriptor);
     } catch {
       throw new WorkingTreeError(`cannot read working tree: ${displayPath(prefix)}`);
     }
@@ -148,12 +155,17 @@ async function readDirectoryNames(
   await assertDirectoryUnchanged(directory, openedStats, prefix);
   let names: string[];
   try {
-    names = await readdir(directory);
+    names = await readDirectoryNamesAsUtf8(directory);
   } catch {
     throw new WorkingTreeError(`cannot read working tree: ${displayPath(prefix)}`);
   }
   await assertDirectoryUnchanged(directory, openedStats, prefix);
   return names;
+}
+
+async function readDirectoryNamesAsUtf8(directory: string): Promise<string[]> {
+  const names = await readdir(directory, { encoding: "buffer" });
+  return names.map((name) => decodeUtf8(name, "working tree path"));
 }
 
 function descriptorPath(fd: number | undefined): string | undefined {

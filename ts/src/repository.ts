@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { lstatSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { Utf8Error, decodeUtf8 } from "./utf8.js";
 
 export const SNAP_DIR = ".snap";
 export const REPOSITORY_FILE = "repository.json";
@@ -154,7 +155,13 @@ export async function readRepositoryJson(root: string): Promise<string> {
     if (!stats.isFile()) {
       throw new RepositoryError(`${basename(file)} is not a regular file`);
     }
-    return await readFile(file, "utf8");
+    const bytes = await readFile(file);
+    try {
+      return decodeUtf8(bytes, "repository.json");
+    } catch (error) {
+      if (error instanceof Utf8Error) throw new RepositoryError(error.message);
+      throw error;
+    }
   } catch (error) {
     if (error instanceof RepositoryError) throw error;
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {

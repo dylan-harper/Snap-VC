@@ -1,0 +1,52 @@
+format: 1
+name: reject malformed UTF-8 bodies and unpaired repository surrogates
+steps:
+  - run:
+      args: [init, repo]
+      expect:
+        - type: exit_code
+          value: 0
+  - write_file:
+      path: repo/.snap/repository.json
+      text: '{"format":1,"frontier":[["a@x",1]],"patches":[{"author":"a@x","revision":1,"base":[],"message":"\ud800","changes":[{"type":"put","path":"f","content":"YQ=="}]}]}'
+  - run:
+      cwd: repo
+      args: [status]
+      expect:
+        - type: exit_code
+          value: 1
+        - type: stderr_contains
+          value: unpaired UTF-16 surrogate
+  - write_file:
+      path: repo/.snap/repository.json
+      text: '{"format":1,"frontier":[["a@x",1]],"patches":[{"author":"a@x","revision":1,"base":[],"message":"path","changes":[{"type":"put","path":"\ud800","content":"YQ=="}]}]}'
+  - run:
+      cwd: repo
+      args: [status]
+      expect:
+        - type: exit_code
+          value: 1
+        - type: stderr_contains
+          value: unpaired UTF-16 surrogate
+  - write_file:
+      path: repo/.snap/repository.json
+      text: '{"format":1,"frontier":[["a@x",1]],"patches":[{"author":"a@x","revision":1,"base":[],"message":"insert","changes":[{"type":"text","path":"f","edit":[{"insert":["\ud800"]}]}]}]}'
+  - run:
+      cwd: repo
+      args: [status]
+      expect:
+        - type: exit_code
+          value: 1
+        - type: stderr_contains
+          value: unpaired UTF-16 surrogate
+  - write_file:
+      path: repo/.snap/repository.json
+      base64: //4=
+  - run:
+      cwd: repo
+      args: [status]
+      expect:
+        - type: exit_code
+          value: 1
+        - type: stderr_contains
+          value: invalid UTF-8

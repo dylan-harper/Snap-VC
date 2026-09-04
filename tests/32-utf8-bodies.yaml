@@ -1,0 +1,46 @@
+format: 1
+name: reject malformed UTF-8 configuration and HTTP repository bodies
+steps:
+  - run:
+      args: [init, local]
+      expect:
+        - type: exit_code
+          value: 0
+  - write_file:
+      path: home/.snapconfig.json
+      base64: //4=
+  - write_file:
+      path: local/file.txt
+      text: "content\n"
+  - run:
+      cwd: local
+      args: [commit, malformed-config]
+      expect:
+        - type: exit_code
+          value: 1
+        - type: stderr_contains
+          value: invalid UTF-8
+  - start_http:
+      id: invalid
+      capture_url: invalid_url
+      routes:
+        - method: GET
+          target: /bad
+          status: 200
+          base64: //4=
+  - run:
+      cwd: local
+      args: [diff, "()", "()", --repo, "{{invalid_url}}/bad"]
+      expect:
+        - type: exit_code
+          value: 1
+        - type: stderr_contains
+          value: invalid UTF-8
+  - assert:
+      - type: http_requests_equal
+        server: invalid
+        value:
+          - method: GET
+            target: /bad
+  - stop_http:
+      id: invalid

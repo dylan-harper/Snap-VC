@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { URL } from "node:url";
+import { Utf8Error, decodeUtf8 } from "./utf8.js";
 
 export class HttpRepositoryError extends Error {
   public constructor(message: string) {
@@ -34,8 +35,9 @@ export async function fetchRepositoryJson(value: string): Promise<string> {
   }
   if (response.status !== 200) throw new HttpRepositoryError(`HTTP ${response.status}`);
   try {
-    return await response.text();
-  } catch {
+    return decodeUtf8(new Uint8Array(await response.arrayBuffer()), "HTTP repository response");
+  } catch (error) {
+    if (error instanceof Utf8Error) throw new HttpRepositoryError(error.message);
     throw new HttpRepositoryError("cannot read HTTP response");
   }
 }

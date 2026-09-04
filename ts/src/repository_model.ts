@@ -1,4 +1,5 @@
 import { parseJsonUnique } from "./json.js";
+import { UnicodeError, validateUnicodeString } from "./utf8.js";
 import { isPathPrefix, validateTrackedPath } from "./working_tree.js";
 import { validateRepositoryHistory } from "./replay.js";
 import {
@@ -94,6 +95,12 @@ function isPositiveSafeInteger(value: unknown): value is number {
 function parseMessage(value: unknown): string {
   if (value === "") fail("patch message is empty");
   if (typeof value !== "string") fail("patch message is invalid");
+  try {
+    validateUnicodeString(value, "patch message");
+  } catch (error) {
+    if (error instanceof UnicodeError) fail(error.message);
+    throw error;
+  }
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)) {
     fail("message contains control character");
   }
@@ -115,6 +122,12 @@ function parseBase64(value: unknown): Uint8Array {
 function parseTextToken(value: unknown): string {
   if (typeof value !== "string" || value.length === 0 || value.includes("\0"))
     fail("text insert token is invalid");
+  try {
+    validateUnicodeString(value, "text insert token");
+  } catch (error) {
+    if (error instanceof UnicodeError) fail(error.message);
+    throw error;
+  }
   const bytes = Buffer.from(value, "utf8");
   if (bytes.includes(0)) fail("text insert token is invalid");
   if (bytes.subarray(0, -1).includes(10)) fail("text insert token is not canonical");
@@ -180,8 +193,9 @@ function parseChange(value: unknown): Change {
 
 function validatePath(path: string): string {
   try {
-    return validateTrackedPath(path);
-  } catch {
+    return validateTrackedPath(validateUnicodeString(path, "path"));
+  } catch (error) {
+    if (error instanceof UnicodeError) fail(error.message);
     fail(`path is invalid: ${path}`);
   }
 }

@@ -202,6 +202,14 @@ typed value—not its serialized bytes—is authoritative. Writers SHOULD use
 two-space indentation and a trailing LF so repositories remain pleasant to
 inspect.
 
+Repository JSON, configuration JSON, and HTTP repository responses are UTF-8
+byte streams and MUST be decoded with fatal error handling: malformed UTF-8 is
+invalid input, not replacement text. Repository JSON string values MUST contain
+only Unicode scalar values; an escaped or raw unpaired UTF-16 surrogate is
+invalid in every repository string field. Snap performs no Unicode normalization.
+The base64 payload of a `put` change and regular working-tree file bytes remain
+opaque and may contain arbitrary binary data.
+
 Unknown fields, non-integer numbers, and invalid typed values are errors.
 `patches` contains exactly the causal closure of `frontier`, sorted by author
 and then numeric revision, with no unreachable patches.

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 
 import { JsonError, parseJsonUnique } from "./json.js";
+import { Utf8Error, decodeUtf8 } from "./utf8.js";
 import { validateContributorId } from "./versions.js";
 
 export interface ContributorConfig {
@@ -80,7 +81,12 @@ async function readConfigFile(path: string): Promise<ContributorConfig | undefin
   if (stats.isSymbolicLink() || !stats.isFile()) {
     throw configError(`unsupported configuration entry: ${path}`);
   }
-  return parseConfig(await readFile(path, "utf8"));
+  try {
+    return parseConfig(decodeUtf8(await readFile(path), "configuration file"));
+  } catch (error) {
+    if (error instanceof Utf8Error) throw configError(error.message);
+    throw error;
+  }
 }
 
 /** Read local configuration, if present. A malformed local file is an error. */
