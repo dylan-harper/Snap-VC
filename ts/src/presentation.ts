@@ -95,7 +95,8 @@ export function renderLog(plain: string, isTty: boolean | undefined): string {
 
 export function renderError(message: string, isTty: boolean | undefined): string {
   try {
-    return colorize(`snap: ${message}`, 31, useTerminalPresentation(isTty));
+    const enabled = useTerminalPresentation(isTty);
+    return enabled ? style(31, `✗ snap: ${message}`) : `snap: ${message}`;
   } catch {
     return `snap: ${message}`;
   }
