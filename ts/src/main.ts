@@ -1,7 +1,10 @@
+import { commit, CommandError, log, status } from "./commands.js";
 import { ConfigError, writeGlobalConfig, writeLocalConfig } from "./config.js";
 import { JsonError } from "./json.js";
 import { findRepositoryRoot, initializeRepository, RepositoryError } from "./repository.js";
+import { RepositoryModelError } from "./repository_model.js";
 import { VersionError } from "./versions.js";
+import { WorkingTreeError } from "./working_tree.js";
 
 async function main(): Promise<void> {
   const [command, ...arguments_] = process.argv.slice(2);
@@ -35,6 +38,24 @@ async function main(): Promise<void> {
     }
     return;
   }
+  if (command === "status" && arguments_.length === 0) {
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    process.stdout.write(await status(root));
+    return;
+  }
+  if (command === "log" && arguments_.length === 0) {
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    process.stdout.write(await log(root));
+    return;
+  }
+  if (command === "commit" && arguments_.length === 1 && arguments_[0] !== undefined) {
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    process.stdout.write(`${await commit(root, arguments_[0])}\n`);
+    return;
+  }
   throw new RepositoryError("invalid command or arguments");
 }
 
@@ -47,7 +68,10 @@ try {
     error instanceof RepositoryError ||
     error instanceof ConfigError ||
     error instanceof JsonError ||
-    error instanceof VersionError
+    error instanceof VersionError ||
+    error instanceof CommandError ||
+    error instanceof RepositoryModelError ||
+    error instanceof WorkingTreeError
       ? 1
       : 2;
 }
