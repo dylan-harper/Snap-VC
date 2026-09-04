@@ -18,7 +18,7 @@ conservative plain-output opt-out.
   operational transform, filesystem materialization, and process-level tests.
 - **Expected difficulty:** high, but slightly smaller than TabbyShell. The CLI
   is narrow; replay, conflict rules, and validation require care.
-- **Prerequisites:** Node.js 18 or newer. Snap itself uses no API key or
+- **Prerequisites:** Node.js 20.19+, 22.13+, or 24+. Snap itself uses no API key or
   network service.
 - **Implementation:** This checkout contains the TypeScript implementation in
   `ts/`. The runner also supports Rust and Scala implementations when those

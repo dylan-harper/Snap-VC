@@ -13,8 +13,32 @@ if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
   nvm use --silent "$(cat "$PROJECT_ROOT/.nvmrc")" >/dev/null
 fi
 
-node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-[ "$node_major" -ge 18 ] || die "Node.js 18 or newer is required"
+node_version="$(node -p 'process.versions.node' 2>/dev/null || printf '%s' 'unavailable')"
+node_major="${node_version%%.*}"
+node_minor="${node_version#*.}"
+node_minor="${node_minor%%.*}"
+node_supported=false
+case "$node_major" in
+  20)
+    case "$node_minor" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$node_minor" -ge 19 ] 2>/dev/null; then node_supported=true; fi ;;
+    esac
+    ;;
+  22)
+    case "$node_minor" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$node_minor" -ge 13 ] 2>/dev/null; then node_supported=true; fi ;;
+    esac
+    ;;
+  *)
+    case "$node_major" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$node_major" -ge 24 ] 2>/dev/null; then node_supported=true; fi ;;
+    esac
+    ;;
+esac
+[ "$node_supported" = true ] || die "Node.js 20.19+, 22.13+, or 24+ is required (found $node_version)"
 lang=""
 has_candidate=false
 passthrough=()
