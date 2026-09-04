@@ -1,0 +1,5 @@
+# Local agent-generated planning and summary documents
+agent_*.md
+
+# Installed dependencies
+**/node_modules/
