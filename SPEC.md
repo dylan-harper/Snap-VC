@@ -64,6 +64,17 @@ its contents.
   report them and MUST NOT follow them.
 - Permissions, ownership, timestamps, and extended attributes are not tracked.
 
+Working-tree scanning uses a portable pure-TypeScript safety boundary. Snap
+MUST reject symlinks and other unsupported entries observed while scanning, and
+MUST use no-follow file opens where the host and Node runtime provide them.
+On macOS and Windows with Node 20, the public filesystem APIs do not provide a
+descriptor-relative directory enumeration primitive. Consequently, Snap
+cannot eliminate the narrow race in which a directory is replaced between its
+initial observation and a pathname-based directory enumeration. This limitation
+does not permit intentionally following observed symlinks, and native
+descriptor-relative traversal is deferred as future hardening rather than
+being required by the portable implementation.
+
 A tracked path is a UTF-8 relative path using `/` separators. It MUST be
 nonempty, contain no ASCII control character or backslash, contain no empty,
 `.` or `..` segment, and have no first segment equal to `.snap`. Snap performs
@@ -711,6 +722,14 @@ Validation failures cause no mutation.
 
 Any command that scans the working tree fails on a symlink or other unsupported
 entry rather than following or silently ignoring it.
+
+The scanning guarantee is defined over entries observed by the portable
+implementation: observed symlinks and special entries are rejected, and file
+opens use no-follow behavior where available. On macOS and Windows under Node
+20, a directory replacement can still occur during pathname-based directory
+enumeration because Node exposes no descriptor-relative directory API. Native
+descriptor-relative traversal may remove this narrow limitation in a future
+hardening effort; it is not part of the portable pure-TypeScript requirement.
 
 During mutation, Snap updates working files first and replaces
 `repository.json` through a same-directory temporary file only after the
