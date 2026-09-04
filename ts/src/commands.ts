@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { resolveContributorId } from "./config.js";
+import { JsonError } from "./json.js";
 import { canonicalTextDiff, classifyFile, renderFileDiff } from "./text_diff.js";
 import {
   type Change,
@@ -16,6 +17,8 @@ import { readRepositoryJson, repositoryPath } from "./repository.js";
 import { scanWorkingTree } from "./working_tree.js";
 import { formatVersion, parseVersion, snapCompare, versionToPairs } from "./versions.js";
 import { fetchRepositoryJson } from "./http.js";
+import { transformTextEdit } from "./ot.js";
+import { joinVersions } from "./versions.js";
 
 export class CommandError extends Error {
   public constructor(message: string) {
@@ -55,22 +58,134 @@ function applyChange(tree: Map<string, Uint8Array>, change: Change): void {
 
 /** Replay histories whose selected patches have materializable single-patch bases. */
 export function materializeVersion(model: RepositoryModel, target: Version): Tree {
-  const built = new Map<string, Tree>([[formatVersion(new Map()), new Map()]]);
-  const pending = new Set(
-    model.patches.filter((patch) => patch.revision <= (target.get(patch.author) ?? 0)),
+  const selected = model.patches.filter(
+    (patch) => patch.revision <= (target.get(patch.author) ?? 0),
   );
+  return replayRepository({ format: 1, frontier: target, patches: selected }).tree;
+}
+
+export function materializeLinearRepository(model: RepositoryModel): Tree {
+  return materializeVersion(model, model.frontier);
+}
+
+export interface ReplayResult {
+  readonly tree: Tree;
+  readonly warnings: readonly string[];
+}
+
+function sameTreeValue(left: Uint8Array | undefined, right: Uint8Array | undefined): boolean {
+  return left === undefined ? right === undefined : right !== undefined && equalBytes(left, right);
+}
+
+function patchReady(patch: Patch, pending: ReadonlySet<Patch>): boolean {
+  return [...patch.base].every(([id, revision]) => {
+    for (let number = 1; number <= revision; number += 1) {
+      const dependency = [...pending].find(
+        (candidate) => candidate.author === id && candidate.revision === number,
+      );
+      if (dependency !== undefined) return false;
+    }
+    return true;
+  });
+}
+
+function integratePatch(
+  current: Tree,
+  base: Tree,
+  patch: Patch,
+): { readonly tree: Tree; readonly warnings: readonly string[] } {
+  const authored = new Map(base);
+  for (const change of patch.changes) applyChange(authored, change);
+  const result = new Map(current);
+  const warnings = new Set<string>();
+  const namespaceRemovals = new Set<string>();
+  const namespaceCandidates = new Set<string>();
+  const namespacePaths = new Set<string>();
+  for (const change of patch.changes) {
+    if (authored.has(change.path)) namespaceCandidates.add(change.path);
+  }
+  for (const path of namespaceCandidates) {
+    for (const currentPath of current.keys()) {
+      if (currentPath === path) continue;
+      if (currentPath.startsWith(`${path}/`) || path.startsWith(`${currentPath}/`)) {
+        namespaceRemovals.add(currentPath);
+        namespacePaths.add(path);
+        warnings.add(`${currentPath}\u0000namespace-wins`);
+      }
+    }
+  }
+  for (const path of namespaceRemovals) result.delete(path);
+
+  for (const change of patch.changes) {
+    if (namespacePaths.has(change.path)) {
+      result.set(change.path, authored.get(change.path) as Uint8Array);
+      continue;
+    }
+    const before = base.get(change.path);
+    const existing = current.get(change.path);
+    const target = authored.get(change.path);
+    if (sameTreeValue(existing, target)) continue;
+    if (sameTreeValue(existing, before)) {
+      if (target === undefined) result.delete(change.path);
+      else result.set(change.path, target);
+      continue;
+    }
+    if (target === undefined) {
+      result.delete(change.path);
+      if (existing !== undefined) warnings.add(`${change.path}\u0000delete-wins`);
+      continue;
+    }
+    if (before !== undefined && existing === undefined) {
+      result.delete(change.path);
+      warnings.add(`${change.path}\u0000delete-wins`);
+      continue;
+    }
+    if (before === undefined && existing === undefined) {
+      result.set(change.path, target);
+      continue;
+    }
+    if (before === undefined && existing !== undefined) {
+      result.set(change.path, target);
+      warnings.add(`${change.path}\u0000later-create-wins`);
+      continue;
+    }
+    if (change.type === "put") {
+      result.set(change.path, target);
+      warnings.add(`${change.path}\u0000later-put-wins`);
+      continue;
+    }
+    const beforeFile = before === undefined ? undefined : classifyFile(before);
+    const existingFile = existing === undefined ? undefined : classifyFile(existing);
+    const targetFile = classifyFile(target);
+    if (
+      change.type === "text" &&
+      beforeFile?.kind === "text" &&
+      existingFile?.kind === "text" &&
+      targetFile.kind === "text"
+    ) {
+      const context = canonicalTextDiff(before as Uint8Array, existing as Uint8Array);
+      const transformed =
+        context.length === 0 ? change.edit : transformTextEdit(change.edit, context);
+      result.set(change.path, applyText(existing, transformed));
+    } else {
+      result.set(change.path, existing as Uint8Array);
+      warnings.add(`${change.path}\u0000put-wins`);
+    }
+  }
+  return {
+    tree: result,
+    warnings: [...warnings].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))),
+  };
+}
+
+/** Replay a complete patch union using Snap's canonical merge order. */
+export function replayRepository(model: RepositoryModel): ReplayResult {
+  const built = new Map<string, Tree>([["()", new Map()]]);
+  const pending = new Set(model.patches);
+  const warnings = new Set<string>();
+  let current: Tree = new Map();
   while (pending.size > 0) {
-    const ready = [...pending].filter((patch) =>
-      [...patch.base].every(([id, revision]) => {
-        for (let number = 1; number <= revision; number += 1) {
-          const dependency = model.patches.find(
-            (candidate) => candidate.author === id && candidate.revision === number,
-          );
-          if (dependency !== undefined && pending.has(dependency)) return false;
-        }
-        return true;
-      }),
-    );
+    const ready = [...pending].filter((patch) => patchReady(patch, pending));
     ready.sort(
       (left, right) =>
         snapCompare(
@@ -82,39 +197,46 @@ export function materializeVersion(model: RepositoryModel, target: Version): Tre
     );
     const patch = ready[0];
     if (patch === undefined) throw new CommandError("unsupported concurrent patch history");
-    const baseTree = built.get(formatVersion(patch.base));
-    if (baseTree === undefined) throw new CommandError("unsupported concurrent patch history");
-    const nextTree = new Map(baseTree);
-    for (const change of patch.changes) applyChange(nextTree, change);
+    const base = built.get(formatVersion(patch.base));
+    if (base === undefined) throw new CommandError("unsupported concurrent patch history");
+    const integrated = integratePatch(current, base, patch);
+    current = integrated.tree;
+    integrated.warnings.forEach((warning) => warnings.add(warning));
     const resultVersion = new Map(patch.base);
     resultVersion.set(patch.author, patch.revision);
-    built.set(formatVersion(resultVersion), nextTree);
+    built.set(formatVersion(resultVersion), current);
     pending.delete(patch);
   }
-  const frontierTree = built.get(formatVersion(target));
-  if (frontierTree === undefined) {
-    throw new CommandError("unsupported concurrent patch history");
+  if (built.has(formatVersion(model.frontier))) {
+    current = built.get(formatVersion(model.frontier)) as Tree;
+  } else {
+    const frontierHeads = [...model.frontier].filter(([id, revision]) =>
+      model.patches.some((patch) => patch.author === id && patch.revision === revision),
+    );
+    if (frontierHeads.length < 2) throw new CommandError("unsupported concurrent patch history");
   }
-  return new Map(
-    [...frontierTree.entries()].sort(([left], [right]) =>
-      Buffer.from(left).compare(Buffer.from(right)),
+  return {
+    tree: new Map(
+      [...current.entries()].sort(([left], [right]) =>
+        Buffer.from(left).compare(Buffer.from(right)),
+      ),
     ),
-  );
-}
-
-export function materializeLinearRepository(model: RepositoryModel): Tree {
-  return materializeVersion(model, model.frontier);
+    warnings: [...warnings].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))),
+  };
 }
 
 export async function loadRepository(root: string): Promise<{
   readonly model: RepositoryModel;
   readonly tree: Tree;
+  readonly warnings: readonly string[];
 }> {
   try {
     const model = parseRepository(await readRepositoryJson(root));
-    return { model, tree: materializeLinearRepository(model) };
+    const replayed = replayRepository(model);
+    return { model, tree: replayed.tree, warnings: replayed.warnings };
   } catch (error) {
     if (error instanceof CommandError || error instanceof RepositoryModelError) throw error;
+    if (error instanceof JsonError) throw new CommandError(`invalid JSON: ${error.message}`);
     throw new CommandError(error instanceof Error ? error.message : "invalid repository");
   }
 }
@@ -122,12 +244,15 @@ export async function loadRepository(root: string): Promise<{
 async function loadRepositoryJson(json: string): Promise<{
   readonly model: RepositoryModel;
   readonly tree: Tree;
+  readonly warnings: readonly string[];
 }> {
   try {
     const model = parseRepository(json);
-    return { model, tree: materializeLinearRepository(model) };
+    const replayed = replayRepository(model);
+    return { model, tree: replayed.tree, warnings: replayed.warnings };
   } catch (error) {
     if (error instanceof CommandError || error instanceof RepositoryModelError) throw error;
+    if (error instanceof JsonError) throw new CommandError(`invalid JSON: ${error.message}`);
     throw new CommandError(error instanceof Error ? error.message : "invalid repository");
   }
 }
@@ -446,4 +571,42 @@ function treesEqual(left: Tree, right: Tree): boolean {
     if (other === undefined || !equalBytes(bytes, other)) return false;
   }
   return true;
+}
+
+function unionRepositories(left: RepositoryModel, right: RepositoryModel): RepositoryModel {
+  checkPatchCollisions(left, right);
+  const patches = new Map<string, Patch>();
+  for (const patch of [...left.patches, ...right.patches]) {
+    patches.set(`${patch.author}\u0000${patch.revision}`, patch);
+  }
+  return {
+    format: 1,
+    frontier: joinVersions(left.frontier, right.frontier),
+    patches: [...patches.values()].sort(
+      (a, b) => Buffer.from(a.author).compare(Buffer.from(b.author)) || a.revision - b.revision,
+    ),
+  };
+}
+
+export async function merge(
+  root: string,
+  repositoryRoot: string,
+): Promise<{
+  readonly version: string;
+  readonly warnings: readonly string[];
+}> {
+  const local = await loadRepository(root);
+  const actual = await scanWorkingTree(root);
+  if (!treesEqual(local.tree, actual)) throw new CommandError("working tree is dirty");
+  const remote = /^(?:http|https):\/\//u.test(repositoryRoot)
+    ? await loadRepositoryJson(await fetchRepositoryJson(repositoryRoot))
+    : await loadRepository(repositoryRoot);
+  const joined = unionRepositories(local.model, remote.model);
+  const parsed = parseRepository(repositoryJson(joined));
+  const replayed = replayRepository(parsed);
+  const oldWarnings = new Set(local.warnings);
+  const newWarnings = replayed.warnings.filter((warning) => !oldWarnings.has(warning));
+  if (!treesEqual(local.tree, replayed.tree)) await installTree(root, replayed.tree);
+  if (repositoryJson(local.model) !== repositoryJson(parsed)) await writeRepository(root, parsed);
+  return { version: formatVersion(parsed.frontier), warnings: newWarnings };
 }

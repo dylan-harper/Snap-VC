@@ -120,3 +120,16 @@ export function renderError(message: string, isTty: boolean | undefined): string
     return `snap: ${message}`;
   }
 }
+
+export function renderWarnings(warnings: readonly string[], isTty: boolean | undefined): string {
+  const enabled = useTerminalPresentation(isTty);
+  return warnings
+    .map((warning) => {
+      const separator = warning.indexOf("\u0000");
+      const path = warning.slice(0, separator);
+      const reason = warning.slice(separator + 1);
+      const line = `auto-resolved ${path}: ${reason}`;
+      return enabled ? `${style(33, "⚠")} ${style(33, line)}\n` : `warning: ${line}\n`;
+    })
+    .join("");
+}

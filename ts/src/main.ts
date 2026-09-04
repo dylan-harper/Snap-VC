@@ -2,6 +2,7 @@ import {
   commit,
   CommandError,
   diff,
+  merge,
   loadRepository,
   log,
   repositoryJson,
@@ -20,6 +21,7 @@ import {
   renderStatus,
   renderSuccess,
   renderVersion,
+  renderWarnings,
   presentationMode,
 } from "./presentation.js";
 import { formatCliVersion, VersionError } from "./versions.js";
@@ -106,6 +108,20 @@ async function main(): Promise<void> {
     if (root === undefined) throw new RepositoryError("not a Snap repository");
     process.stdout.write(
       renderSuccess("revert", await revert(root, arguments_[0]), process.stdout.isTTY),
+    );
+    return;
+  }
+  if (command === "merge" && arguments_.length === 1 && arguments_[0] !== undefined) {
+    const root = findRepositoryRoot(process.cwd());
+    if (root === undefined) throw new RepositoryError("not a Snap repository");
+    const operand = arguments_[0];
+    const repositoryRoot = /^(?:http|https):\/\//u.test(operand)
+      ? operand
+      : resolve(process.cwd(), operand);
+    const result = await merge(root, repositoryRoot);
+    process.stderr.write(renderWarnings(result.warnings, process.stderr.isTTY));
+    process.stdout.write(
+      renderSuccess("commit", result.version, process.stdout.isTTY).replace("Committed", "Merged"),
     );
     return;
   }

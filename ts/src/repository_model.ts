@@ -365,7 +365,22 @@ export function parseRepository(text: unknown): RepositoryModel {
     built.set(versionKey(resultVersion), result);
     pending.delete(patch);
   }
-  if (!built.has(versionKey(frontier))) fail("frontier tree cannot be reconstructed");
+  // A frontier may contain several concurrent heads.  Its tree is reconstructed
+  // by the merge algebra, after each individual patch base has been validated.
+  // A single-head frontier must still be materializable here so malformed linear
+  // histories cannot pass validation.
+  if (!built.has(versionKey(frontier))) {
+    const heads = [...frontier].filter(([id, revision]) => {
+      const patch = byDot.get(`${id}\u0000${revision}`);
+      return (
+        patch !== undefined &&
+        ![...patch.base].some(
+          ([baseId, baseRevision]) => baseId === id && baseRevision === revision,
+        )
+      );
+    });
+    if (heads.length < 2) fail("frontier tree cannot be reconstructed");
+  }
   return { format: 1, frontier, patches };
 }
 
