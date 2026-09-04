@@ -4,11 +4,20 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 HARNESS_DIR="$PROJECT_ROOT/test-harness"
 export SNAP_HARNESS_CALLER_CWD="$PWD"
+die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 2; }
+
+NVM_DIR="${NVM_DIR:-${HOME:-}/.nvm}"
+if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
+  export NVM_DIR
+  . "$NVM_DIR/nvm.sh"
+  nvm use --silent "$(cat "$PROJECT_ROOT/.nvmrc")" >/dev/null
+fi
+
+node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+[ "$node_major" -ge 18 ] || die "Node.js 18 or newer is required"
 lang=""
 has_candidate=false
 passthrough=()
-
-die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in

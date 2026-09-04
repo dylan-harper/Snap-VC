@@ -2,8 +2,17 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
-
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+NVM_DIR="${NVM_DIR:-${HOME:-}/.nvm}"
+if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
+  export NVM_DIR
+  . "$NVM_DIR/nvm.sh"
+  nvm use --silent "$(cat "$PROJECT_ROOT/.nvmrc")" >/dev/null
+fi
+
+node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+[ "$node_major" -ge 18 ] || die "Node.js 18 or newer is required"
 file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
 
 implementation_dir() {
