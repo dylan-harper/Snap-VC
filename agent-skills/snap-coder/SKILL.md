@@ -14,7 +14,7 @@ and commits; do not broaden the task because adjacent features are missing.
 ## Required discovery
 
 Before editing, read the repository AGENTS.md, the applicable language AGENTS.md,
-SPEC.md, the relevant section of agent_plan_externally_hardened.md if present,
+SPEC.md, the relevant section of agent-skills/agent-planning/agent_plan_externally_hardened.md if present,
 and the adjacent YAML tests in tests/. Inspect existing code and
 git status --short; preserve unrelated changes already in the worktree.
 
@@ -66,4 +66,3 @@ Do not commit unless the orchestrator explicitly assigns the commit to you.
 Report changed files, behavior implemented, tests run with pass/fail results,
 known limitations, and any spec ambiguity. Mention unrelated pre-existing
 worktree changes without modifying or claiming them.
-

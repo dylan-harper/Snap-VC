@@ -14,7 +14,7 @@ the worktree. Return findings to the orchestrator in severity order.
 ## Review setup
 
 Read AGENTS.md, the applicable language guidance, SPEC.md, the relevant section
-of agent_plan_externally_hardened.md, and the tests named for the feature. Inspect
+of agent-skills/agent-planning/agent_plan_externally_hardened.md, and the tests named for the feature. Inspect
 both git diff --cached and git status --short. Distinguish staged changes from
 unrelated unstaged or untracked work; unrelated work is not evidence against the
 patch.
@@ -63,4 +63,3 @@ line, concrete evidence, impact, and a minimal remediation. A clean review must
 explicitly say that no blockers or actionable findings were found, and list the
 focused commands that passed. Do not manufacture findings from style preferences
 already enforced by lint or Prettier.
-

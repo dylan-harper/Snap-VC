@@ -1,6 +1,3 @@
-# Local agent-generated planning and summary documents
-agent_*.md
-
 # macOS Finder metadata
 .DS_Store
 
